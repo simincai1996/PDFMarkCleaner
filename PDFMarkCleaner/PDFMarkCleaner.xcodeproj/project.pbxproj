@@ -6,6 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		AA1100012F3D000100000001 /* PDFMarkCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA1700022F3D000100000001 /* PDFMarkCore */; };
+		AA1100022F3D000100000001 /* PDFMarkCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA1700032F3D000100000001 /* PDFMarkCore */; };
+		AA1100032F3D000100000001 /* SharedAssets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA1200022F3D000100000001 /* SharedAssets.xcassets */; };
+		AA1100042F3D000100000001 /* SharedAssets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA1200022F3D000100000001 /* SharedAssets.xcassets */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		F7FAA5172F3CA0B5003C9929 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -17,14 +24,21 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		AA1200012F3D000100000001 /* App-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "App-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA1200022F3D000100000001 /* SharedAssets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = SharedAssets.xcassets; sourceTree = "<group>"; };
 		F7FAA5012F3CA0B4003C9929 /* PDFMarkCleaner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PDFMarkCleaner.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F7FAA5112F3CA0B5003C9929 /* PDFMarkCleanerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PDFMarkCleanerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		F7FAA5032F3CA0B4003C9929 /* PDFMarkCleaner */ = {
+		AA1300022F3D000100000001 /* App-iOS */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = PDFMarkCleaner;
+			path = "App-iOS";
+			sourceTree = "<group>";
+		};
+		F7FAA5032F3CA0B4003C9929 /* App-macOS */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "App-macOS";
 			sourceTree = "<group>";
 		};
 		F7FAA5122F3CA0B5003C9929 /* PDFMarkCleanerTests */ = {
@@ -35,10 +49,19 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		AA1400012F3D000100000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA1100022F3D000100000001 /* PDFMarkCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F7FAA4FE2F3CA0B4003C9929 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA1100012F3D000100000001 /* PDFMarkCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -55,7 +78,9 @@
 		F7FAA4F82F3CA0B4003C9929 = {
 			isa = PBXGroup;
 			children = (
-				F7FAA5032F3CA0B4003C9929 /* PDFMarkCleaner */,
+				F7FAA5032F3CA0B4003C9929 /* App-macOS */,
+				AA1300022F3D000100000001 /* App-iOS */,
+				AA1200022F3D000100000001 /* SharedAssets.xcassets */,
 				F7FAA5122F3CA0B5003C9929 /* PDFMarkCleanerTests */,
 				F7FAA5022F3CA0B4003C9929 /* Products */,
 			);
@@ -64,6 +89,7 @@
 		F7FAA5022F3CA0B4003C9929 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				AA1200012F3D000100000001 /* App-iOS.app */,
 				F7FAA5012F3CA0B4003C9929 /* PDFMarkCleaner.app */,
 				F7FAA5112F3CA0B5003C9929 /* PDFMarkCleanerTests.xctest */,
 			);
@@ -73,6 +99,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		AA1500012F3D000100000001 /* App-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA1600032F3D000100000001 /* Build configuration list for PBXNativeTarget "App-iOS" */;
+			buildPhases = (
+				AA1400032F3D000100000001 /* Sources */,
+				AA1400012F3D000100000001 /* Frameworks */,
+				AA1400022F3D000100000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				AA1300022F3D000100000001 /* App-iOS */,
+			);
+			name = "App-iOS";
+			packageProductDependencies = (
+				AA1700032F3D000100000001 /* PDFMarkCore */,
+			);
+			productName = "App-iOS";
+			productReference = AA1200012F3D000100000001 /* App-iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
 		F7FAA5002F3CA0B4003C9929 /* PDFMarkCleaner */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = F7FAA50C2F3CA0B5003C9929 /* Build configuration list for PBXNativeTarget "PDFMarkCleaner" */;
@@ -86,10 +135,11 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				F7FAA5032F3CA0B4003C9929 /* PDFMarkCleaner */,
+				F7FAA5032F3CA0B4003C9929 /* App-macOS */,
 			);
 			name = PDFMarkCleaner;
 			packageProductDependencies = (
+				AA1700022F3D000100000001 /* PDFMarkCore */,
 			);
 			productName = PDFMarkCleaner;
 			productReference = F7FAA5012F3CA0B4003C9929 /* PDFMarkCleaner.app */;
@@ -128,6 +178,9 @@
 				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
+					AA1500012F3D000100000001 = {
+						CreatedOnToolsVersion = 26.2;
+					};
 					F7FAA5002F3CA0B4003C9929 = {
 						CreatedOnToolsVersion = 26.2;
 					};
@@ -146,22 +199,35 @@
 			);
 			mainGroup = F7FAA4F82F3CA0B4003C9929;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AA1700012F3D000100000001 /* XCLocalSwiftPackageReference "Core" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F7FAA5022F3CA0B4003C9929 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				F7FAA5002F3CA0B4003C9929 /* PDFMarkCleaner */,
+				AA1500012F3D000100000001 /* App-iOS */,
 				F7FAA5162F3CA0B5003C9929 /* PDFMarkCleanerTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		AA1400022F3D000100000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA1100042F3D000100000001 /* SharedAssets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F7FAA4FF2F3CA0B4003C9929 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA1100032F3D000100000001 /* SharedAssets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -175,6 +241,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		AA1400032F3D000100000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F7FAA4FD2F3CA0B4003C9929 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -200,6 +273,74 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		AA1600012F3D000100000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+					CURRENT_PROJECT_VERSION = 1;
+					GENERATE_INFOPLIST_FILE = YES;
+					INFOPLIST_KEY_CFBundleDisplayName = "PDF Mark Cleaner";
+					INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+					PRODUCT_BUNDLE_IDENTIFIER = simin.PDFMarkCleaner.iOS;
+					PRODUCT_NAME = "PDF Mark Cleaner";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		AA1600022F3D000100000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+					CURRENT_PROJECT_VERSION = 1;
+					GENERATE_INFOPLIST_FILE = YES;
+					INFOPLIST_KEY_CFBundleDisplayName = "PDF Mark Cleaner";
+					INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+					PRODUCT_BUNDLE_IDENTIFIER = simin.PDFMarkCleaner.iOS;
+					PRODUCT_NAME = "PDF Mark Cleaner";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		F7FAA50A2F3CA0B5003C9929 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -449,6 +590,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		AA1600032F3D000100000001 /* Build configuration list for PBXNativeTarget "App-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA1600012F3D000100000001 /* Debug */,
+				AA1600022F3D000100000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		F7FAA4FC2F3CA0B4003C9929 /* Build configuration list for PBXProject "PDFMarkCleaner" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -477,6 +627,26 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		AA1700012F3D000100000001 /* XCLocalSwiftPackageReference "Core" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Core;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AA1700022F3D000100000001 /* PDFMarkCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA1700012F3D000100000001 /* XCLocalSwiftPackageReference "Core" */;
+			productName = PDFMarkCore;
+		};
+		AA1700032F3D000100000001 /* PDFMarkCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA1700012F3D000100000001 /* XCLocalSwiftPackageReference "Core" */;
+			productName = PDFMarkCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = F7FAA4F92F3CA0B4003C9929 /* Project object */;
 }

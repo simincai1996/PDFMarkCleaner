@@ -1,7 +1,8 @@
 import Foundation
 import PDFKit
 
-enum AnnotationKind: String, CaseIterable, Identifiable {
+/// PDF 注释类型数据模型（无 UI 依赖），供 macOS / iOS 共用。
+public enum AnnotationKind: String, CaseIterable, Identifiable, Sendable {
     case ink
     case highlight
     case underline
@@ -22,9 +23,9 @@ enum AnnotationKind: String, CaseIterable, Identifiable {
     case polyLine
     case sound
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var title: String {
+    public var title: String {
         switch self {
         case .ink: return "Ink"
         case .highlight: return "Highlight"
@@ -77,13 +78,14 @@ enum AnnotationKind: String, CaseIterable, Identifiable {
     }
 }
 
-enum StripError: LocalizedError {
+/// 清理流程的错误类型，供上层 UI 做提示与状态更新。
+public enum StripError: LocalizedError {
     case openFailed
     case emptyDocument
     case saveFailed
     case cancelled
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .openFailed: return "Failed to open PDF."
         case .emptyDocument: return "PDF has no pages."
@@ -93,7 +95,8 @@ enum StripError: LocalizedError {
     }
 }
 
-struct PDFAnnotationStripper {
+/// 纯 PDF 处理逻辑：判断、统计、移除注释。
+public struct PDFAnnotationStripper {
     private static let slashSet = CharacterSet(charactersIn: "/")
 
     private static func normalize(_ type: String) -> String {
@@ -103,26 +106,29 @@ struct PDFAnnotationStripper {
             .lowercased()
     }
 
-    static func shouldRemove(_ annot: PDFAnnotation, selectedTypes: Set<AnnotationKind>) -> Bool {
+    public static func shouldRemove(_ annot: PDFAnnotation, selectedTypes: Set<AnnotationKind>) -> Bool {
         if selectedTypes.isEmpty { return false }
         guard let type = annot.type else { return false }
         let normalized = normalize(type)
         return selectedTypes.contains { $0.matches(normalizedType: normalized) }
     }
 
-    static func removeAnnotations(in page: PDFPage, selectedTypes: Set<AnnotationKind>) {
+    public static func removeAnnotations(in page: PDFPage, selectedTypes: Set<AnnotationKind>) {
         for annot in page.annotations where shouldRemove(annot, selectedTypes: selectedTypes) {
             page.removeAnnotation(annot)
         }
     }
 
-    static func kind(for annot: PDFAnnotation) -> AnnotationKind? {
+    public static func kind(for annot: PDFAnnotation) -> AnnotationKind? {
         guard let type = annot.type else { return nil }
         let normalized = normalize(type)
         return AnnotationKind.allCases.first { $0.matches(normalizedType: normalized) }
     }
 
-    static func strip(
+    /// 执行注释清理并写出新 PDF：
+    /// - parameters:
+    ///   - pagesToProcess: 传 `nil` 表示处理全部页面，否则按 1-based 页码集合处理。
+    public static func strip(
         input: URL,
         output: URL,
         selectedTypes: Set<AnnotationKind>,

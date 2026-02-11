@@ -3,6 +3,7 @@ import AppKit
 import UniformTypeIdentifiers
 import Combine
 import PDFKit
+import PDFMarkCore
 
 enum RemovalScope: String, CaseIterable, Identifiable {
     case all

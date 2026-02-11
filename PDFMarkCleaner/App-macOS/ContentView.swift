@@ -1,6 +1,7 @@
 import SwiftUI
 import PDFKit
 import AppKit
+import PDFMarkCore
 
 struct ContentView: View {
     @StateObject private var model: AppModel
