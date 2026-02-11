@@ -68,6 +68,38 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         return true
     }
 
+    var canSaveAsSingle: Bool {
+        !isRunning && !isBatchMode && outputURL != nil
+    }
+
+    var canSaveAsBatch: Bool {
+        !isRunning && isBatchMode && !batchOutputURLs.isEmpty
+    }
+
+    var canReplaceOriginal: Bool {
+        guard !isRunning else { return false }
+        if isBatchMode {
+            return batchReplaceReadyCount > 0
+        }
+        return inputURL != nil && outputURL != nil
+    }
+
+    var canDeleteOriginal: Bool {
+        guard !isRunning else { return false }
+        if isBatchMode {
+            return !batchInputURLs.isEmpty
+        }
+        return inputURL != nil
+    }
+
+    var batchReplaceReadyCount: Int {
+        processedBatchPairs().count
+    }
+
+    var batchDocumentCount: Int {
+        batchInputURLs.count
+    }
+
     var currentBatchOutputURL: URL? {
         guard let inputURL else { return nil }
         return outputByInputPath[inputURL.standardizedFileURL.path]
@@ -235,6 +267,100 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         processSingle()
     }
 
+    func prepareSingleExportPayload() -> (data: Data, filename: String)? {
+        guard let outputURL else {
+            status = "请先完成处理，再执行另存。"
+            return nil
+        }
+
+        do {
+            let data = try Self.readData(from: outputURL)
+            let filename = outputURL.lastPathComponent
+            return (data, filename)
+        } catch {
+            status = "读取导出文件失败：\(error.localizedDescription)"
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func markSingleSaveAsCompleted(destination: URL) {
+        status = "已另存：\(destination.lastPathComponent)"
+    }
+
+    func saveBatchOutputs(to directoryURL: URL) {
+        guard !isRunning else { return }
+        guard isBatchMode else {
+            status = "当前不是批处理模式。"
+            return
+        }
+        guard !batchOutputURLs.isEmpty else {
+            status = "请先完成批处理，再执行另存。"
+            return
+        }
+
+        let outputs = batchOutputURLs
+        isRunning = true
+        progress = 0
+        errorMessage = nil
+        status = "正在批量另存..."
+
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            var copied = 0
+            var failed = 0
+            var reserved = Set<String>()
+
+            let hasDirectoryAccess = directoryURL.startAccessingSecurityScopedResource()
+            defer {
+                if hasDirectoryAccess {
+                    directoryURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            for (index, output) in outputs.enumerated() {
+                do {
+                    try Self.copyOutput(output, toDirectory: directoryURL, reservedPaths: &reserved)
+                    copied += 1
+                } catch {
+                    failed += 1
+                }
+
+                let overall = Double(index + 1) / Double(outputs.count)
+                Task { @MainActor in
+                    self.progress = overall
+                }
+            }
+
+            let finalCopied = copied
+            let finalFailed = failed
+            Task { @MainActor in
+                self.isRunning = false
+                self.progress = 1
+                if finalFailed == 0 {
+                    self.status = "批量另存完成：\(finalCopied) 个文件。"
+                } else {
+                    self.status = "批量另存完成：成功 \(finalCopied) 个，失败 \(finalFailed) 个。"
+                }
+            }
+        }
+    }
+
+    func replaceOriginals() {
+        if isBatchMode {
+            replaceBatchOriginals()
+        } else {
+            replaceSingleOriginal()
+        }
+    }
+
+    func deleteOriginals() {
+        if isBatchMode {
+            deleteBatchOriginals()
+        } else {
+            deleteSingleOriginal()
+        }
+    }
+
     private func processSingle() {
         guard let sourceURL = inputURL else { return }
         guard !selectedTypes.isEmpty else {
@@ -359,6 +485,177 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         }
     }
 
+    private func replaceSingleOriginal() {
+        guard let inputURL, let outputURL else {
+            status = "请先完成处理，再替代原文件。"
+            return
+        }
+        guard !isRunning else { return }
+
+        isRunning = true
+        progress = 0
+        errorMessage = nil
+        status = "正在替代原文件..."
+
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            do {
+                try Self.overwriteFile(at: inputURL, with: outputURL)
+                Task { @MainActor in
+                    self.isRunning = false
+                    self.progress = 1
+                    self.status = "已替代原文件：\(inputURL.lastPathComponent)"
+                    self.refreshCurrentDocumentState()
+                }
+            } catch {
+                Task { @MainActor in
+                    self.isRunning = false
+                    self.status = "替代失败：\(error.localizedDescription)"
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func replaceBatchOriginals() {
+        let pairs = processedBatchPairs()
+        guard !pairs.isEmpty else {
+            status = "没有可替代的批处理结果，请先完成批处理。"
+            return
+        }
+        guard !isRunning else { return }
+
+        isRunning = true
+        progress = 0
+        errorMessage = nil
+        status = "正在批量替代原文件..."
+
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            var replaced = 0
+            var failed = 0
+
+            for (index, pair) in pairs.enumerated() {
+                do {
+                    try Self.overwriteFile(at: pair.input, with: pair.output)
+                    replaced += 1
+                } catch {
+                    failed += 1
+                }
+
+                let overall = Double(index + 1) / Double(pairs.count)
+                Task { @MainActor in
+                    self.progress = overall
+                }
+            }
+
+            let finalReplaced = replaced
+            let finalFailed = failed
+            Task { @MainActor in
+                self.isRunning = false
+                self.progress = 1
+                if finalFailed == 0 {
+                    self.status = "批量替代完成：\(finalReplaced) 个文件。"
+                } else {
+                    self.status = "批量替代完成：成功 \(finalReplaced) 个，失败 \(finalFailed) 个。"
+                }
+                self.refreshCurrentDocumentState()
+            }
+        }
+    }
+
+    private func deleteSingleOriginal() {
+        guard let inputURL else {
+            status = "请先选择文件。"
+            return
+        }
+        guard !isRunning else { return }
+
+        isRunning = true
+        progress = 0
+        errorMessage = nil
+        status = "正在删除原文件..."
+
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            do {
+                try Self.removeFile(inputURL)
+                Task { @MainActor in
+                    self.isRunning = false
+                    self.clearInputs()
+                    self.status = "已删除原文件：\(inputURL.lastPathComponent)"
+                }
+            } catch {
+                Task { @MainActor in
+                    self.isRunning = false
+                    self.status = "删除失败：\(error.localizedDescription)"
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func deleteBatchOriginals() {
+        guard !batchInputURLs.isEmpty else {
+            status = "批处理列表为空。"
+            return
+        }
+        guard !isRunning else { return }
+
+        let urls = batchInputURLs
+        isRunning = true
+        progress = 0
+        errorMessage = nil
+        status = "正在批量删除原文件..."
+
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            var deleted = 0
+            var failed = 0
+            var deletedPaths = Set<String>()
+
+            for (index, url) in urls.enumerated() {
+                do {
+                    try Self.removeFile(url)
+                    deleted += 1
+                    deletedPaths.insert(url.standardizedFileURL.path)
+                } catch {
+                    failed += 1
+                }
+
+                let overall = Double(index + 1) / Double(urls.count)
+                Task { @MainActor in
+                    self.progress = overall
+                }
+            }
+
+            let finalDeleted = deleted
+            let finalFailed = failed
+            let finalDeletedPaths = deletedPaths
+            Task { @MainActor in
+                self.isRunning = false
+                self.progress = 1
+
+                if !finalDeletedPaths.isEmpty {
+                    self.batchInputURLs.removeAll { finalDeletedPaths.contains($0.standardizedFileURL.path) }
+                    for path in finalDeletedPaths {
+                        self.outputByInputPath.removeValue(forKey: path)
+                    }
+                }
+
+                if self.batchInputURLs.isEmpty {
+                    self.clearInputs()
+                    self.processingMode = .batch
+                } else {
+                    let nextIndex = min(self.batchIndex, self.batchInputURLs.count - 1)
+                    self.switchToBatchIndex(nextIndex)
+                }
+
+                if finalFailed == 0 {
+                    self.status = "批量删除完成：\(finalDeleted) 个文件。"
+                } else {
+                    self.status = "批量删除完成：成功 \(finalDeleted) 个，失败 \(finalFailed) 个。"
+                }
+            }
+        }
+    }
+
     // 中文说明：iOS 文件选择器返回的 URL 可能是安全域 URL，需要在访问期间显式开启权限。
     private func readPDFDocument(from url: URL) -> PDFDocument? {
         let hasAccess = url.startAccessingSecurityScopedResource()
@@ -368,6 +665,79 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
             }
         }
         return PDFDocument(url: url)
+    }
+
+    private func processedBatchPairs() -> [(input: URL, output: URL)] {
+        batchInputURLs.compactMap { input in
+            let key = input.standardizedFileURL.path
+            guard let output = outputByInputPath[key] else { return nil }
+            return (input, output)
+        }
+    }
+
+    private nonisolated static func readData(from url: URL) throws -> Data {
+        let hasAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if hasAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        return try Data(contentsOf: url)
+    }
+
+    private nonisolated static func copyOutput(_ source: URL, toDirectory directory: URL, reservedPaths: inout Set<String>) throws {
+        let fileManager = FileManager.default
+        let preferred = directory.appendingPathComponent(source.lastPathComponent)
+        let destination = resolveBatchOutputURL(for: preferred, reservedPaths: &reservedPaths)
+
+        let hasSourceAccess = source.startAccessingSecurityScopedResource()
+        defer {
+            if hasSourceAccess {
+                source.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        if fileManager.fileExists(atPath: destination.path) {
+            try fileManager.removeItem(at: destination)
+        }
+        try fileManager.copyItem(at: source, to: destination)
+    }
+
+    private nonisolated static func overwriteFile(at destination: URL, with source: URL) throws {
+        let destinationPath = destination.standardizedFileURL.path
+        let sourcePath = source.standardizedFileURL.path
+        if destinationPath == sourcePath {
+            return
+        }
+
+        let fileManager = FileManager.default
+        let hasDestinationAccess = destination.startAccessingSecurityScopedResource()
+        let hasSourceAccess = source.startAccessingSecurityScopedResource()
+        defer {
+            if hasDestinationAccess {
+                destination.stopAccessingSecurityScopedResource()
+            }
+            if hasSourceAccess {
+                source.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        if fileManager.fileExists(atPath: destination.path) {
+            try fileManager.removeItem(at: destination)
+        }
+        try fileManager.copyItem(at: source, to: destination)
+    }
+
+    private nonisolated static func removeFile(_ url: URL) throws {
+        let hasAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if hasAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
     }
 
     // 中文说明：为每次处理创建独立目录，避免多次操作互相覆盖。

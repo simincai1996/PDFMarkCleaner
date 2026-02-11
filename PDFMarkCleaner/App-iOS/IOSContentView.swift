@@ -15,6 +15,11 @@ struct IOSContentView: View {
     @State private var showTypeSection = true
     @State private var showExportSection = true
     @State private var showAllAnnotationTypes = false
+    @State private var showSingleSaveExporter = false
+    @State private var singleSaveDocument = PDFExportDocument(data: Data())
+    @State private var singleSaveFilename = "cleaned.pdf"
+    @State private var showBatchFolderPicker = false
+    @State private var pendingCriticalAction: CriticalExportAction?
 
     @AppStorage("appLanguage") private var appLanguageRaw: String = IOSAppLanguage.system.rawValue
     @AppStorage("backgroundTheme") private var backgroundThemeRaw: String = IOSBackgroundTheme.frost.rawValue
@@ -29,6 +34,15 @@ struct IOSContentView: View {
         case comparison
         case original
         case cleaned
+
+        var id: String { rawValue }
+    }
+
+    enum CriticalExportAction: String, Identifiable {
+        case replaceSingle
+        case replaceBatch
+        case deleteSingle
+        case deleteBatch
 
         var id: String { rawValue }
     }
@@ -101,6 +115,54 @@ struct IOSContentView: View {
         .dropDestination(for: URL.self) { items, _ in
             importPickedFiles(items)
             return !items.isEmpty
+        }
+        .fileExporter(
+            isPresented: $showSingleSaveExporter,
+            document: singleSaveDocument,
+            contentType: .pdf,
+            defaultFilename: singleSaveFilename
+        ) { result in
+            switch result {
+            case .success(let savedURL):
+                model.markSingleSaveAsCompleted(destination: savedURL)
+            case .failure(let error):
+                model.errorMessage = error.localizedDescription
+                model.status = "另存失败：\(error.localizedDescription)"
+            }
+        }
+        .fileImporter(
+            isPresented: $showBatchFolderPicker,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let folder = urls.first else { return }
+                model.saveBatchOutputs(to: folder)
+            case .failure(let error):
+                model.errorMessage = error.localizedDescription
+                model.status = "选择目录失败：\(error.localizedDescription)"
+            }
+        }
+        .confirmationDialog(
+            confirmationTitle(for: pendingCriticalAction),
+            isPresented: Binding(
+                get: { pendingCriticalAction != nil },
+                set: { presented in
+                    if !presented { pendingCriticalAction = nil }
+                }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingCriticalAction
+        ) { action in
+            Button("确认执行", role: .destructive) {
+                performCriticalAction(action)
+            }
+            Button("取消", role: .cancel) {
+                pendingCriticalAction = nil
+            }
+        } message: { action in
+            Text(confirmationMessage(for: action))
         }
         .alert(localizer.t(.processFailed), isPresented: Binding(
             get: { model.errorMessage != nil },
@@ -383,6 +445,26 @@ struct IOSContentView: View {
         DisclosureGroup(isExpanded: $showExportSection) {
             VStack(alignment: .leading, spacing: 8) {
                 if model.isBatchMode {
+                    HStack(spacing: 8) {
+                        Button("批量另存") {
+                            showBatchFolderPicker = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!model.canSaveAsBatch)
+
+                        Button("批量替代原件", role: .destructive) {
+                            pendingCriticalAction = .replaceBatch
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!model.canReplaceOriginal)
+
+                        Button("批量删除原件", role: .destructive) {
+                            pendingCriticalAction = .deleteBatch
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!model.canDeleteOriginal)
+                    }
+
                     if model.batchOutputURLs.isEmpty {
                         Text(localizer.t(.exportHintBatch))
                             .font(.footnote)
@@ -401,6 +483,26 @@ struct IOSContentView: View {
                         }
                     }
                 } else if let output = model.outputURL {
+                    HStack(spacing: 8) {
+                        Button("另存为") {
+                            prepareSingleSaveAs()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!model.canSaveAsSingle)
+
+                        Button("替代原件", role: .destructive) {
+                            pendingCriticalAction = .replaceSingle
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!model.canReplaceOriginal)
+
+                        Button("删除原件", role: .destructive) {
+                            pendingCriticalAction = .deleteSingle
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!model.canDeleteOriginal)
+                    }
+
                     Text(output.lastPathComponent)
                         .font(.footnote)
                         .lineLimit(2)
@@ -408,6 +510,24 @@ struct IOSContentView: View {
                         Label(localizer.t(.export), systemImage: "square.and.arrow.up")
                     }
                 } else {
+                    HStack(spacing: 8) {
+                        Button("另存为") {
+                            prepareSingleSaveAs()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(true)
+
+                        Button("替代原件", role: .destructive) {}
+                            .buttonStyle(.bordered)
+                            .disabled(true)
+
+                        Button("删除原件", role: .destructive) {
+                            pendingCriticalAction = .deleteSingle
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!model.canDeleteOriginal)
+                    }
+
                     Text(localizer.t(.exportHintSingle))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -713,6 +833,56 @@ struct IOSContentView: View {
         }
     }
 
+    private func prepareSingleSaveAs() {
+        guard let payload = model.prepareSingleExportPayload() else { return }
+        singleSaveDocument = PDFExportDocument(data: payload.data)
+        singleSaveFilename = payload.filename
+        showSingleSaveExporter = true
+    }
+
+    private func performCriticalAction(_ action: CriticalExportAction) {
+        pendingCriticalAction = nil
+        switch action {
+        case .replaceSingle, .replaceBatch:
+            model.replaceOriginals()
+        case .deleteSingle, .deleteBatch:
+            model.deleteOriginals()
+        }
+    }
+
+    private func confirmationTitle(for action: CriticalExportAction?) -> String {
+        guard let action else { return "" }
+        switch action {
+        case .replaceSingle:
+            return "确认替代当前原文件？"
+        case .replaceBatch:
+            return "确认批量替代原文件？"
+        case .deleteSingle:
+            return "确认删除当前原文件？"
+        case .deleteBatch:
+            return "确认批量删除原文件？"
+        }
+    }
+
+    private func confirmationMessage(for action: CriticalExportAction) -> String {
+        switch action {
+        case .replaceSingle:
+            return "将使用已清理版本覆盖当前原文件，此操作不可撤销。"
+        case .replaceBatch:
+            let ready = model.batchReplaceReadyCount
+            let total = model.batchDocumentCount
+            let skipped = max(0, total - ready)
+            if skipped > 0 {
+                return "将替代 \(ready) 个已处理文档，跳过 \(skipped) 个未处理文档。此操作不可撤销。"
+            }
+            return "将替代 \(ready) 个文档的原文件，此操作不可撤销。"
+        case .deleteSingle:
+            return "将删除当前原文件，此操作不可撤销。"
+        case .deleteBatch:
+            return "将删除 \(model.batchDocumentCount) 个原文件，此操作不可撤销。"
+        }
+    }
+
     @ViewBuilder
     private func batchRow(url: URL, index: Int) -> some View {
         HStack(spacing: 8) {
@@ -809,6 +979,27 @@ struct IOSContentView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.white.opacity(0.34))
         )
+    }
+}
+
+private struct PDFExportDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.pdf] }
+
+    var data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let content = configuration.file.regularFileContents else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        data = content
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
     }
 }
 
