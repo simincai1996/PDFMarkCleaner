@@ -114,9 +114,23 @@ final class AppModel: ObservableObject {
     private let maxPreviewScale: CGFloat = 3.0
     private let scanUpdateStride = 12
     private var fileStates: [URL: FileState] = [:]
+    var skipBackgroundWorkForTesting = false
+    private var localizer: Localizer {
+        let raw = UserDefaults.standard.string(forKey: "appLanguage") ?? AppLanguage.system.rawValue
+        let language = AppLanguage(rawValue: raw) ?? .system
+        return Localizer(language: language)
+    }
 
     var isBatchMode: Bool {
         processingMode == .batch
+    }
+
+    private func localized(_ key: LKey) -> String {
+        localizer.t(key)
+    }
+
+    private func localized(_ key: LKey, _ args: CVarArg...) -> String {
+        String(format: localizer.t(key), locale: Locale.current, arguments: args)
     }
 
     var suggestedOutputURL: URL? {
@@ -203,7 +217,7 @@ final class AppModel: ObservableObject {
 
         let pdfURLs = normalizedPDFURLs(from: urls)
         guard !pdfURLs.isEmpty else {
-            status = "Please drop PDF files."
+            status = localized(.dropPDFFiles)
             return
         }
 
@@ -533,7 +547,7 @@ final class AppModel: ObservableObject {
         if index < batchIndex {
             batchIndex -= 1
         }
-        status = "Removed from batch: \(removed.lastPathComponent)"
+        status = localized(.removedFromBatch, removed.lastPathComponent)
     }
 
     private func applyBatchInputsSelection(_ urls: [URL]) {
@@ -561,7 +575,7 @@ final class AppModel: ObservableObject {
         }
 
         guard !additions.isEmpty else {
-            status = "No new PDF files added."
+            status = localized(.noNewPDFFilesAdded)
             return
         }
 
@@ -571,8 +585,55 @@ final class AppModel: ObservableObject {
             switchToBatchIndex(0)
             status = "Selected: \(batchInputURLs.count) files"
         } else {
-            status = "Added: \(additions.count) file(s)"
+            status = localized(.filesAdded, additions.count)
         }
+    }
+
+    func resolveBatchOutputURL(
+        for preferred: URL,
+        reservedPaths: inout Set<String>,
+        pathExists: (String) -> Bool
+    ) -> (url: URL, wasRenamed: Bool) {
+        let preferredURL = preferred.standardizedFileURL
+        let directory = preferredURL.deletingLastPathComponent()
+        let baseName = preferredURL.deletingPathExtension().lastPathComponent
+        let ext = preferredURL.pathExtension
+
+        func normalized(_ url: URL) -> String {
+            url.standardizedFileURL.path.lowercased()
+        }
+
+        var candidate = preferredURL
+        var suffix = 2
+        while true {
+            let normalizedPath = normalized(candidate)
+            let usedInRun = reservedPaths.contains(normalizedPath)
+            let existsOnDisk = pathExists(candidate.path)
+            if !usedInRun && !existsOnDisk {
+                reservedPaths.insert(normalizedPath)
+                return (candidate, candidate != preferredURL)
+            }
+
+            let filename: String
+            if ext.isEmpty {
+                filename = "\(baseName)_\(suffix)"
+            } else {
+                filename = "\(baseName)_\(suffix).\(ext)"
+            }
+            candidate = directory.appendingPathComponent(filename)
+            suffix += 1
+        }
+    }
+
+    func resolveBatchOutputURL(
+        for preferred: URL,
+        reservedPaths: inout Set<String>
+    ) -> (url: URL, wasRenamed: Bool) {
+        resolveBatchOutputURL(
+            for: preferred,
+            reservedPaths: &reservedPaths,
+            pathExists: { FileManager.default.fileExists(atPath: $0) }
+        )
     }
 
     private func normalizedPDFURLs(from urls: [URL]) -> [URL] {
@@ -604,6 +665,8 @@ final class AppModel: ObservableObject {
 
         let urls = batchInputURLs
         let typesSnapshot = selectedTypes
+        var reservedOutputPaths = Set<String>()
+        var renamedOutputCount = 0
 
         progress = 0
         isRunning = true
@@ -615,10 +678,17 @@ final class AppModel: ObservableObject {
 
             for (index, url) in urls.enumerated() {
                 do {
-                    let output = self.suggestedOutputURL(for: url)
+                    let preferredOutput = self.suggestedOutputURL(for: url)
+                    let resolved = self.resolveBatchOutputURL(
+                        for: preferredOutput,
+                        reservedPaths: &reservedOutputPaths
+                    )
+                    if resolved.wasRenamed {
+                        renamedOutputCount += 1
+                    }
                     try PDFAnnotationStripper.strip(
                         input: url,
-                        output: output,
+                        output: resolved.url,
                         selectedTypes: typesSnapshot,
                         pagesToProcess: nil,
                         progress: { p in
@@ -629,7 +699,7 @@ final class AppModel: ObservableObject {
                         }
                     )
 
-                    let size = self.fileSize(for: output)
+                    let size = self.fileSize(for: resolved.url)
                     DispatchQueue.main.async {
                         if url == self.inputURL {
                             self.estimatedFileSizeBytes = size
@@ -654,7 +724,11 @@ final class AppModel: ObservableObject {
                     self.status = "Batch failed: \(error.localizedDescription)"
                 } else {
                     self.progress = 1
-                    self.status = "Batch done: \(urls.count) files"
+                    if renamedOutputCount > 0 {
+                        self.status = self.localized(.batchDoneWithRenamed, urls.count, renamedOutputCount)
+                    } else {
+                        self.status = "Batch done: \(urls.count) files"
+                    }
                 }
             }
         }
@@ -1049,6 +1123,16 @@ final class AppModel: ObservableObject {
 
     private func scanMarkedPages() {
         guard let inputURL else { return }
+        if skipBackgroundWorkForTesting {
+            isScanning = false
+            scanProgress = 0
+            markedPages = []
+            documentTypeCounts = [:]
+            perPageTypeCounts = [:]
+            currentPageTypeCounts = [:]
+            selectedPagesTypeCounts = [:]
+            return
+        }
 
         let token = UUID()
         scanToken = token

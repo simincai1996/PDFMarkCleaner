@@ -79,6 +79,12 @@ enum LKey {
     case previewFile
     case startBatch
     case sameAsInputFolder
+    case dropPDFFiles
+    case noNewPDFFilesAdded
+    case filesAdded
+    case removedFromBatch
+    case removeFromBatchList
+    case batchDoneWithRenamed
     case background
     case themeFrost
     case themeSky
@@ -200,6 +206,12 @@ struct Localizer {
         case .previewFile: return "Preview File"
         case .startBatch: return "Start Batch"
         case .sameAsInputFolder: return "Same as input folder"
+        case .dropPDFFiles: return "Please drop PDF files."
+        case .noNewPDFFilesAdded: return "No new PDF files added."
+        case .filesAdded: return "Added: %d file(s)"
+        case .removedFromBatch: return "Removed from batch: %@"
+        case .removeFromBatchList: return "Remove from batch list"
+        case .batchDoneWithRenamed: return "Batch done: %d files (renamed: %d)"
         case .background: return "Background"
         case .themeFrost: return "Frost"
         case .themeSky: return "Sky"
@@ -278,6 +290,12 @@ struct Localizer {
         case .previewFile: return "预览文件"
         case .startBatch: return "开始批量"
         case .sameAsInputFolder: return "与输入文件夹相同"
+        case .dropPDFFiles: return "请拖入 PDF 文件。"
+        case .noNewPDFFilesAdded: return "没有新增 PDF 文件。"
+        case .filesAdded: return "已添加：%d 个文件"
+        case .removedFromBatch: return "已从批量列表移除：%@"
+        case .removeFromBatchList: return "从批量列表移除"
+        case .batchDoneWithRenamed: return "批量完成：%d 个文件（重命名：%d）"
         case .background: return "背景"
         case .themeFrost: return "清霜"
         case .themeSky: return "晴空"
@@ -356,6 +374,12 @@ struct Localizer {
         case .previewFile: return "預覽檔案"
         case .startBatch: return "開始批量"
         case .sameAsInputFolder: return "與輸入資料夾相同"
+        case .dropPDFFiles: return "請拖入 PDF 檔案。"
+        case .noNewPDFFilesAdded: return "沒有新增 PDF 檔案。"
+        case .filesAdded: return "已新增：%d 個檔案"
+        case .removedFromBatch: return "已從批量清單移除：%@"
+        case .removeFromBatchList: return "從批量清單移除"
+        case .batchDoneWithRenamed: return "批量完成：%d 個檔案（重新命名：%d）"
         case .background: return "背景"
         case .themeFrost: return "清霜"
         case .themeSky: return "晴空"
@@ -434,6 +458,12 @@ struct Localizer {
         case .previewFile: return "Vorschau-Datei"
         case .startBatch: return "Stapel starten"
         case .sameAsInputFolder: return "Wie Eingabeordner"
+        case .dropPDFFiles: return "Bitte PDF-Dateien hier ablegen."
+        case .noNewPDFFilesAdded: return "Keine neuen PDF-Dateien hinzugefügt."
+        case .filesAdded: return "Hinzugefügt: %d Datei(en)"
+        case .removedFromBatch: return "Aus Stapel entfernt: %@"
+        case .removeFromBatchList: return "Aus Stapelliste entfernen"
+        case .batchDoneWithRenamed: return "Stapel abgeschlossen: %d Dateien (umbenannt: %d)"
         case .background: return "Hintergrund"
         case .themeFrost: return "Frost"
         case .themeSky: return "Himmel"
@@ -512,6 +542,12 @@ struct Localizer {
         case .previewFile: return "Archivo de vista previa"
         case .startBatch: return "Iniciar lote"
         case .sameAsInputFolder: return "Igual que la carpeta de entrada"
+        case .dropPDFFiles: return "Suelta archivos PDF."
+        case .noNewPDFFilesAdded: return "No se agregaron archivos PDF nuevos."
+        case .filesAdded: return "Agregado(s): %d archivo(s)"
+        case .removedFromBatch: return "Eliminado del lote: %@"
+        case .removeFromBatchList: return "Quitar de la lista de lote"
+        case .batchDoneWithRenamed: return "Lote finalizado: %d archivos (renombrados: %d)"
         case .background: return "Fondo"
         case .themeFrost: return "Escarcha"
         case .themeSky: return "Cielo"

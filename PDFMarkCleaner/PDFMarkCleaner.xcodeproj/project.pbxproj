@@ -6,8 +6,19 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		F7FAA5172F3CA0B5003C9929 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F7FAA4F92F3CA0B4003C9929 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F7FAA5002F3CA0B4003C9929;
+			remoteInfo = PDFMarkCleaner;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		F7FAA5012F3CA0B4003C9929 /* PDFMarkCleaner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PDFMarkCleaner.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7FAA5112F3CA0B5003C9929 /* PDFMarkCleanerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PDFMarkCleanerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +27,22 @@
 			path = PDFMarkCleaner;
 			sourceTree = "<group>";
 		};
+		F7FAA5122F3CA0B5003C9929 /* PDFMarkCleanerTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PDFMarkCleanerTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		F7FAA4FE2F3CA0B4003C9929 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F7FAA5132F3CA0B5003C9929 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +56,7 @@
 			isa = PBXGroup;
 			children = (
 				F7FAA5032F3CA0B4003C9929 /* PDFMarkCleaner */,
+				F7FAA5122F3CA0B5003C9929 /* PDFMarkCleanerTests */,
 				F7FAA5022F3CA0B4003C9929 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				F7FAA5012F3CA0B4003C9929 /* PDFMarkCleaner.app */,
+				F7FAA5112F3CA0B5003C9929 /* PDFMarkCleanerTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,6 +95,29 @@
 			productReference = F7FAA5012F3CA0B4003C9929 /* PDFMarkCleaner.app */;
 			productType = "com.apple.product-type.application";
 		};
+		F7FAA5162F3CA0B5003C9929 /* PDFMarkCleanerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F7FAA51B2F3CA0B5003C9929 /* Build configuration list for PBXNativeTarget "PDFMarkCleanerTests" */;
+			buildPhases = (
+				F7FAA5142F3CA0B5003C9929 /* Sources */,
+				F7FAA5132F3CA0B5003C9929 /* Frameworks */,
+				F7FAA5152F3CA0B5003C9929 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F7FAA5182F3CA0B5003C9929 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				F7FAA5122F3CA0B5003C9929 /* PDFMarkCleanerTests */,
+			);
+			name = PDFMarkCleanerTests;
+			packageProductDependencies = (
+			);
+			productName = PDFMarkCleanerTests;
+			productReference = F7FAA5112F3CA0B5003C9929 /* PDFMarkCleanerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -82,6 +130,10 @@
 				TargetAttributes = {
 					F7FAA5002F3CA0B4003C9929 = {
 						CreatedOnToolsVersion = 26.2;
+					};
+					F7FAA5162F3CA0B5003C9929 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = F7FAA5002F3CA0B4003C9929;
 					};
 				};
 			};
@@ -100,12 +152,20 @@
 			projectRoot = "";
 			targets = (
 				F7FAA5002F3CA0B4003C9929 /* PDFMarkCleaner */,
+				F7FAA5162F3CA0B5003C9929 /* PDFMarkCleanerTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		F7FAA4FF2F3CA0B4003C9929 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F7FAA5152F3CA0B5003C9929 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +182,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F7FAA5142F3CA0B5003C9929 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		F7FAA5182F3CA0B5003C9929 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F7FAA5002F3CA0B4003C9929 /* PDFMarkCleaner */;
+			targetProxy = F7FAA5172F3CA0B5003C9929 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		F7FAA50A2F3CA0B5003C9929 /* Debug */ = {
@@ -325,6 +400,52 @@
 			};
 			name = Release;
 		};
+		F7FAA5192F3CA0B5003C9929 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = simin.PDFMarkCleanerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PDFMarkCleaner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PDFMarkCleaner";
+			};
+			name = Debug;
+		};
+		F7FAA51A2F3CA0B5003C9929 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = simin.PDFMarkCleanerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PDFMarkCleaner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PDFMarkCleaner";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -342,6 +463,15 @@
 			buildConfigurations = (
 				F7FAA50D2F3CA0B5003C9929 /* Debug */,
 				F7FAA50E2F3CA0B5003C9929 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F7FAA51B2F3CA0B5003C9929 /* Build configuration list for PBXNativeTarget "PDFMarkCleanerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F7FAA5192F3CA0B5003C9929 /* Debug */,
+				F7FAA51A2F3CA0B5003C9929 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

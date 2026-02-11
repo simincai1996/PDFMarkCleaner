@@ -7,6 +7,7 @@ struct ContentView: View {
     @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     @AppStorage("enableAdvancedOptions") private var enableAdvancedOptions = false
     @AppStorage("backgroundTheme") private var backgroundThemeRaw: String = BackgroundTheme.frost.rawValue
+    @State private var isSidebarDropTargeted = false
 
     init(model: AppModel = AppModel()) {
         _model = StateObject(wrappedValue: model)
@@ -26,6 +27,26 @@ struct ContentView: View {
             HStack(spacing: 16) {
                 Sidebar(model: model, localizer: localizer, advancedOptionsEnabled: enableAdvancedOptions)
                     .frame(width: 380)
+                    .dropDestination(
+                        for: URL.self,
+                        action: { items, _ in
+                            model.handleDroppedFiles(items, allowBatch: enableAdvancedOptions)
+                            return !items.isEmpty
+                        },
+                        isTargeted: { isSidebarDropTargeted = $0 }
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(
+                                backgroundTheme.accentColor.opacity(isSidebarDropTargeted ? 0.95 : 0),
+                                lineWidth: 2.2
+                            )
+                            .shadow(
+                                color: backgroundTheme.accentColor.opacity(isSidebarDropTargeted ? 0.35 : 0),
+                                radius: 8
+                            )
+                            .animation(.easeInOut(duration: 0.16), value: isSidebarDropTargeted)
+                    )
 
                 PreviewColumn(
                     title: localizer.t(.original),
@@ -177,37 +198,16 @@ private struct Sidebar: View {
 
                                 ScrollView {
                                     LazyVStack(alignment: .leading, spacing: 6) {
-                                        ForEach(Array(model.batchInputURLs.enumerated()), id: \.offset) { index, url in
-                                            HStack(spacing: 8) {
-                                                Button {
-                                                    model.switchToBatchIndex(index)
-                                                } label: {
-                                                    HStack(spacing: 8) {
-                                                        Text(url.lastPathComponent)
-                                                            .lineLimit(1)
-                                                        Spacer()
-                                                        if index == model.batchIndex {
-                                                            Image(systemName: "checkmark")
-                                                        }
-                                                    }
-                                                }
-                                                .buttonStyle(.plain)
-                                                .padding(.vertical, 4)
-                                                .padding(.horizontal, 6)
-                                                .background(index == model.batchIndex ? Color.white.opacity(0.6) : Color.clear)
-                                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-
-                                                Button {
-                                                    model.removeBatchInput(at: index)
-                                                } label: {
-                                                    Image(systemName: "minus.circle.fill")
-                                                        .font(.system(size: 12))
-                                                        .foregroundStyle(.secondary.opacity(0.6))
-                                                }
-                                                .buttonStyle(.plain)
-                                                .disabled(model.isRunning)
-                                                .help("Remove from batch list")
-                                            }
+                                        ForEach(Array(model.batchInputURLs.enumerated()), id: \.element) { index, url in
+                                            BatchFileRow(
+                                                index: index,
+                                                url: url,
+                                                currentIndex: model.batchIndex,
+                                                isRunning: model.isRunning,
+                                                removeTooltip: localizer.t(.removeFromBatchList),
+                                                onSelect: { model.switchToBatchIndex(index) },
+                                                onRemove: { model.removeBatchInput(at: index) }
+                                            )
                                         }
 
                                         if model.batchInputURLs.isEmpty {
@@ -600,10 +600,6 @@ private struct Sidebar: View {
                 }
                 .background(ScrollViewStyleConfigurator())
             }
-            .dropDestination(for: URL.self) { items, _ in
-                model.handleDroppedFiles(items, allowBatch: advancedOptionsEnabled)
-                return !items.isEmpty
-            }
             .onChange(of: model.inputURL) { _, _ in
                 pageRangeInput = ""
             }
@@ -646,6 +642,45 @@ private struct Sidebar: View {
     private func sizeText(for bytes: Int64) -> String {
         if bytes <= 0 { return "--" }
         return sizeFormatter.string(fromByteCount: bytes)
+    }
+}
+
+private struct BatchFileRow: View {
+    let index: Int
+    let url: URL
+    let currentIndex: Int
+    let isRunning: Bool
+    let removeTooltip: String
+    let onSelect: () -> Void
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: onSelect) {
+                HStack(spacing: 8) {
+                    Text(url.lastPathComponent)
+                        .lineLimit(1)
+                    Spacer()
+                    if index == currentIndex {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.vertical, 4)
+            .padding(.horizontal, 6)
+            .background(index == currentIndex ? Color.white.opacity(0.6) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+            Button(action: onRemove) {
+                Image(systemName: "minus.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+            .disabled(isRunning)
+            .help(removeTooltip)
+        }
     }
 }
 
