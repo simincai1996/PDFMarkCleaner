@@ -165,15 +165,19 @@ final class AppModel: ObservableObject {
         panel.allowsMultipleSelection = false
 
         if panel.runModal() == .OK, let url = panel.url {
-            inputURL = url
-            outputURL = nil
-            currentPageNumber = 1
-            status = "Selected: \(url.lastPathComponent)"
-            updateFileSize(for: url)
-            loadDocuments(url: url)
-            scanMarkedPages()
-            markEstimateStale(clearValue: true)
+            open(url: url)
         }
+    }
+
+    func open(url: URL) {
+        inputURL = url
+        outputURL = nil
+        currentPageNumber = 1
+        status = "Selected: \(url.lastPathComponent)"
+        updateFileSize(for: url)
+        loadDocuments(url: url)
+        scanMarkedPages()
+        markEstimateStale(clearValue: true)
     }
 
     func pickBatchInputs() {
@@ -187,17 +191,37 @@ final class AppModel: ObservableObject {
         panel.allowsMultipleSelection = true
 
         if panel.runModal() == .OK {
-            let urls = panel.urls
-            batchInputURLs = urls
-            batchIndex = 0
-            fileStates = fileStates.filter { urls.contains($0.key) }
-            if urls.isEmpty {
-                resetState(statusMessage: "Select a PDF file.")
-            } else {
-                switchToBatchIndex(0)
-                status = "Selected: \(urls.count) files"
-            }
+            applyBatchInputsSelection(normalizedPDFURLs(from: panel.urls))
         }
+    }
+
+    func handleDroppedFiles(_ urls: [URL], allowBatch: Bool) {
+        if isRunning {
+            status = "Processing... Please wait."
+            return
+        }
+
+        let pdfURLs = normalizedPDFURLs(from: urls)
+        guard !pdfURLs.isEmpty else {
+            status = "Please drop PDF files."
+            return
+        }
+
+        if allowBatch && isBatchMode {
+            appendBatchInputs(pdfURLs)
+            return
+        }
+
+        if allowBatch && pdfURLs.count > 1 {
+            saveCurrentState()
+            processingMode = .batch
+            applyBatchInputsSelection(pdfURLs)
+            return
+        }
+
+        saveCurrentState()
+        processingMode = .single
+        open(url: pdfURLs[0])
     }
 
     func pickBatchOutputDirectory() {
@@ -477,6 +501,94 @@ final class AppModel: ObservableObject {
 
     func stepBatchItem(_ delta: Int) {
         switchToBatchIndex(batchIndex + delta)
+    }
+
+    func removeBatchInput(at index: Int) {
+        guard !isRunning else {
+            status = "Processing... Please wait."
+            return
+        }
+        guard batchInputURLs.indices.contains(index) else { return }
+
+        let removed = batchInputURLs[index]
+        let wasCurrent = inputURL == removed
+        batchInputURLs.remove(at: index)
+        fileStates.removeValue(forKey: removed)
+
+        guard !batchInputURLs.isEmpty else {
+            inputURL = nil
+            outputURL = nil
+            clearCurrentDocumentState(statusMessage: "Select a PDF file.")
+            batchIndex = 0
+            return
+        }
+
+        if wasCurrent {
+            inputURL = nil
+            let newIndex = min(index, batchInputURLs.count - 1)
+            switchToBatchIndex(newIndex)
+            return
+        }
+
+        if index < batchIndex {
+            batchIndex -= 1
+        }
+        status = "Removed from batch: \(removed.lastPathComponent)"
+    }
+
+    private func applyBatchInputsSelection(_ urls: [URL]) {
+        batchInputURLs = urls
+        batchIndex = 0
+        fileStates = fileStates.filter { urls.contains($0.key) }
+        if urls.isEmpty {
+            resetState(statusMessage: "Select a PDF file.")
+        } else {
+            switchToBatchIndex(0)
+            status = "Selected: \(urls.count) files"
+        }
+    }
+
+    private func appendBatchInputs(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+
+        var known = Set(batchInputURLs.map { $0.standardizedFileURL.path })
+        var additions: [URL] = []
+        for url in urls {
+            let path = url.standardizedFileURL.path
+            if known.insert(path).inserted {
+                additions.append(url)
+            }
+        }
+
+        guard !additions.isEmpty else {
+            status = "No new PDF files added."
+            return
+        }
+
+        let wasEmpty = batchInputURLs.isEmpty
+        batchInputURLs.append(contentsOf: additions)
+        if wasEmpty || inputURL == nil {
+            switchToBatchIndex(0)
+            status = "Selected: \(batchInputURLs.count) files"
+        } else {
+            status = "Added: \(additions.count) file(s)"
+        }
+    }
+
+    private func normalizedPDFURLs(from urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        var result: [URL] = []
+
+        for url in urls {
+            let fileURL = url.standardizedFileURL
+            guard fileURL.isFileURL else { continue }
+            guard fileURL.pathExtension.lowercased() == "pdf" else { continue }
+            if seen.insert(fileURL.path).inserted {
+                result.append(fileURL)
+            }
+        }
+
+        return result
     }
 
     private func startBatch() {
@@ -1223,6 +1335,10 @@ final class AppModel: ObservableObject {
         inputURL = nil
         outputURL = nil
         batchOutputDirectory = nil
+        clearCurrentDocumentState(statusMessage: statusMessage)
+    }
+
+    private func clearCurrentDocumentState(statusMessage: String) {
         originalPreview = nil
         cleanedPreview = nil
         pageCount = 0

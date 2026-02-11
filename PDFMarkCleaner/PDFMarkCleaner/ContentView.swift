@@ -3,10 +3,14 @@ import PDFKit
 import AppKit
 
 struct ContentView: View {
-    @StateObject private var model = AppModel()
+    @StateObject private var model: AppModel
     @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     @AppStorage("enableAdvancedOptions") private var enableAdvancedOptions = false
     @AppStorage("backgroundTheme") private var backgroundThemeRaw: String = BackgroundTheme.frost.rawValue
+
+    init(model: AppModel = AppModel()) {
+        _model = StateObject(wrappedValue: model)
+    }
 
     private var localizer: Localizer {
         Localizer(language: AppLanguage(rawValue: appLanguageRaw) ?? .system)
@@ -174,23 +178,36 @@ private struct Sidebar: View {
                                 ScrollView {
                                     LazyVStack(alignment: .leading, spacing: 6) {
                                         ForEach(Array(model.batchInputURLs.enumerated()), id: \.offset) { index, url in
-                                            Button {
-                                                model.switchToBatchIndex(index)
-                                            } label: {
-                                                HStack(spacing: 8) {
-                                                    Text(url.lastPathComponent)
-                                                        .lineLimit(1)
-                                                    Spacer()
-                                                    if index == model.batchIndex {
-                                                        Image(systemName: "checkmark")
+                                            HStack(spacing: 8) {
+                                                Button {
+                                                    model.switchToBatchIndex(index)
+                                                } label: {
+                                                    HStack(spacing: 8) {
+                                                        Text(url.lastPathComponent)
+                                                            .lineLimit(1)
+                                                        Spacer()
+                                                        if index == model.batchIndex {
+                                                            Image(systemName: "checkmark")
+                                                        }
                                                     }
                                                 }
+                                                .buttonStyle(.plain)
+                                                .padding(.vertical, 4)
+                                                .padding(.horizontal, 6)
+                                                .background(index == model.batchIndex ? Color.white.opacity(0.6) : Color.clear)
+                                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                                                Button {
+                                                    model.removeBatchInput(at: index)
+                                                } label: {
+                                                    Image(systemName: "minus.circle.fill")
+                                                        .font(.system(size: 12))
+                                                        .foregroundStyle(.secondary.opacity(0.6))
+                                                }
+                                                .buttonStyle(.plain)
+                                                .disabled(model.isRunning)
+                                                .help("Remove from batch list")
                                             }
-                                            .buttonStyle(.plain)
-                                            .padding(.vertical, 4)
-                                            .padding(.horizontal, 6)
-                                            .background(index == model.batchIndex ? Color.white.opacity(0.6) : Color.clear)
-                                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                                         }
 
                                         if model.batchInputURLs.isEmpty {
@@ -582,6 +599,10 @@ private struct Sidebar: View {
                     .padding(.trailing, 10)
                 }
                 .background(ScrollViewStyleConfigurator())
+            }
+            .dropDestination(for: URL.self) { items, _ in
+                model.handleDroppedFiles(items, allowBatch: advancedOptionsEnabled)
+                return !items.isEmpty
             }
             .onChange(of: model.inputURL) { _, _ in
                 pageRangeInput = ""
