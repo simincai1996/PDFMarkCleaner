@@ -1,0 +1,912 @@
+import Foundation
+import AppKit
+import UniformTypeIdentifiers
+import Combine
+import PDFKit
+
+enum RemovalScope: String, CaseIterable, Identifiable {
+    case all
+    case selected
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "All Pages"
+        case .selected: return "Selected Pages"
+        }
+    }
+}
+
+final class AppModel: ObservableObject {
+    @Published var inputURL: URL?
+    @Published var outputURL: URL?
+    @Published var selectedTypes: Set<AnnotationKind> = Set(AnnotationKind.allCases) {
+        didSet {
+            if inputURL != nil {
+                handleSelectionChanged()
+            }
+        }
+    }
+    @Published var removalScope: RemovalScope = .all {
+        didSet {
+            if inputURL != nil {
+                handleScopeChanged()
+            }
+        }
+    }
+    @Published var selectedPages: Set<Int> = [] {
+        didSet {
+            if inputURL != nil && !isUpdatingSelection {
+                handleSelectedPagesChanged()
+            }
+        }
+    }
+    @Published var progress: Double = 0
+    @Published var isRunning = false
+    @Published var status = "Select a PDF file."
+
+    @Published var originalPreview: PDFDocument?
+    @Published var cleanedPreview: PDFDocument?
+    @Published private(set) var pageCount: Int = 0
+    @Published var currentPageNumber: Int = 1 {
+        didSet {
+            if inputURL != nil {
+                updateCurrentPageCounts()
+            }
+        }
+    }
+    @Published var markedPages: [Int] = []
+    @Published var isScanning = false
+    @Published var scanProgress: Double = 0
+    @Published var previewScale: CGFloat = 1.0
+
+    @Published var inputFileSizeBytes: Int64 = 0
+    @Published var estimatedFileSizeBytes: Int64?
+    @Published var isEstimatingSize = false
+    @Published var estimateProgress: Double = 0
+    @Published var isEstimateStale = true
+    @Published var documentTypeCounts: [AnnotationKind: Int] = [:]
+    @Published var currentPageTypeCounts: [AnnotationKind: Int] = [:]
+    @Published var selectedPagesTypeCounts: [AnnotationKind: Int] = [:]
+
+    private var scanToken = UUID()
+    private var estimateToken = UUID()
+    private var lastEstimateKey: String?
+    private var cleanedProcessedPages = Set<Int>()
+    private var isUpdatingSelection = false
+    private var perPageTypeCounts: [Int: [AnnotationKind: Int]] = [:]
+    private let minPreviewScale: CGFloat = 0.5
+    private let maxPreviewScale: CGFloat = 3.0
+    private let scanUpdateStride = 12
+
+    var suggestedOutputURL: URL? {
+        guard let inputURL else { return nil }
+        let base = inputURL.deletingPathExtension().lastPathComponent
+        let filename = base + "_cleaned.pdf"
+        return inputURL.deletingLastPathComponent().appendingPathComponent(filename)
+    }
+
+    var canProcess: Bool {
+        guard inputURL != nil else { return false }
+        if selectedTypes.isEmpty { return false }
+        if removalScope == .selected && selectedPages.isEmpty { return false }
+        return true
+    }
+
+    var canEstimate: Bool {
+        guard inputURL != nil else { return false }
+        if selectedTypes.isEmpty { return false }
+        if removalScope == .selected && selectedPages.isEmpty { return false }
+        return true
+    }
+
+    func pickInput() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType.pdf]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+
+        if panel.runModal() == .OK, let url = panel.url {
+            inputURL = url
+            outputURL = nil
+            currentPageNumber = 1
+            status = "Selected: \(url.lastPathComponent)"
+            updateFileSize(for: url)
+            loadDocuments(url: url)
+            scanMarkedPages()
+            markEstimateStale(clearValue: true)
+        }
+    }
+
+    func clearSelection() {
+        if isRunning {
+            status = "Processing... Please wait."
+            return
+        }
+
+        resetState(statusMessage: "Select a PDF file.")
+    }
+
+    func pickOutput() {
+        guard let inputURL else {
+            status = "Please select a PDF first."
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType.pdf]
+        panel.directoryURL = inputURL.deletingLastPathComponent()
+        panel.nameFieldStringValue = suggestedOutputURL?.lastPathComponent ?? "output.pdf"
+
+        if panel.runModal() == .OK, let url = panel.url {
+            outputURL = url
+            status = "Output: \(url.lastPathComponent)"
+        }
+    }
+
+    func start() {
+        guard canProcess else {
+            status = "Select types/pages before processing."
+            return
+        }
+        guard let inputURL else {
+            status = "Please select a PDF first."
+            return
+        }
+        if isRunning { return }
+
+        let output = outputURL ?? suggestedOutputURL ?? inputURL
+        runStrip(to: output)
+    }
+
+    func saveAs() {
+        guard canProcess else {
+            status = "Select types/pages before saving."
+            return
+        }
+        guard let inputURL else {
+            status = "Please select a PDF first."
+            return
+        }
+        if isRunning { return }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType.pdf]
+        panel.directoryURL = inputURL.deletingLastPathComponent()
+        panel.nameFieldStringValue = suggestedOutputURL?.lastPathComponent ?? "output.pdf"
+
+        if panel.runModal() == .OK, let url = panel.url {
+            outputURL = url
+            runStrip(to: url)
+        }
+    }
+
+    func exportMarkedPages() {
+        guard let inputURL else {
+            status = "Please select a PDF first."
+            return
+        }
+        if isScanning {
+            status = "Scanning marked pages..."
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType.plainText]
+        panel.directoryURL = inputURL.deletingLastPathComponent()
+        panel.nameFieldStringValue = "marked_pages.txt"
+
+        if panel.runModal() == .OK, let url = panel.url {
+            let formatter = ISO8601DateFormatter()
+            let timestamp = formatter.string(from: Date())
+            let marks = markedPages.map(String.init).joined(separator: ", ")
+            let types = selectedTypes.sorted { $0.title < $1.title }.map { $0.title }.joined(separator: ", ")
+            let content = """
+            PDF Mark Cleaner - Marked Pages Export
+            File: \(inputURL.path)
+            Exported: \(timestamp)
+            Types: \(types.isEmpty ? "None" : types)
+            Total pages: \(pageCount)
+            Marked pages (\(markedPages.count)):
+            \(marks)
+            """
+
+            do {
+                try content.write(to: url, atomically: true, encoding: .utf8)
+                status = "Exported: \(url.lastPathComponent)"
+            } catch {
+                status = "Export failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func estimateSize() {
+        guard inputURL != nil else {
+            status = "Please select a PDF first."
+            return
+        }
+        if isEstimatingSize || isRunning { return }
+
+        if selectedTypes.isEmpty {
+            status = "Select annotation types to estimate."
+            return
+        }
+        if removalScope == .selected && selectedPages.isEmpty {
+            status = "Select pages to estimate."
+            return
+        }
+
+        let key = makeEstimateKey()
+        if !isEstimateStale, key == lastEstimateKey, estimatedFileSizeBytes != nil {
+            status = "Estimate is up to date."
+            return
+        }
+
+        estimateOutputSize(forKey: key)
+    }
+
+    func replaceOriginal() {
+        guard canProcess else {
+            status = "Select types/pages before replacing."
+            return
+        }
+        guard let inputURL else {
+            status = "Please select a PDF first."
+            return
+        }
+        if isRunning { return }
+
+        guard confirm(
+            title: "Replace original PDF?",
+            message: "This will overwrite the original file. This action cannot be undone."
+        ) else {
+            return
+        }
+
+        let tempName = ".pdfmarkcleaner_tmp_\(UUID().uuidString).pdf"
+        let tempURL = inputURL.deletingLastPathComponent().appendingPathComponent(tempName)
+
+        runStrip(to: tempURL, completion: { [weak self] success in
+            guard let self else { return }
+            if !success { return }
+            do {
+                let fileManager = FileManager.default
+                _ = try fileManager.replaceItemAt(inputURL, withItemAt: tempURL, backupItemName: nil, options: [])
+                self.status = "Replaced: \(inputURL.lastPathComponent)"
+                self.updateFileSize(for: inputURL)
+                self.loadDocuments(url: inputURL)
+                self.scanMarkedPages()
+                self.markEstimateStale(clearValue: true)
+            } catch {
+                self.status = "Replace failed: \(error.localizedDescription)"
+                try? FileManager.default.removeItem(at: tempURL)
+            }
+        })
+    }
+
+    func deleteOriginal() {
+        guard let inputURL else {
+            status = "Please select a PDF first."
+            return
+        }
+        if isRunning { return }
+
+        guard confirm(
+            title: "Delete original PDF?",
+            message: "The file will be moved to Trash."
+        ) else {
+            return
+        }
+
+        do {
+            var trashed: NSURL?
+            try FileManager.default.trashItem(at: inputURL, resultingItemURL: &trashed)
+            resetState(statusMessage: "Moved to Trash: \(inputURL.lastPathComponent)")
+        } catch {
+            status = "Delete failed: \(error.localizedDescription)"
+        }
+    }
+
+    func selectAllMarkedPages() {
+        guard !markedPages.isEmpty else { return }
+        selectedPages = Set(markedPages)
+    }
+
+    func clearSelectedPages() {
+        selectedPages = []
+    }
+
+    func applyPageRangeInput(_ input: String) {
+        guard inputURL != nil else {
+            status = "Please select a PDF first."
+            return
+        }
+        guard removalScope == .selected else {
+            status = "Switch to Selected Pages to apply ranges."
+            return
+        }
+
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            selectedPages = []
+            status = "Selected pages cleared."
+            return
+        }
+
+        let tokens = trimmed.split { ch in
+            ch == "," || ch == ";" || ch == " " || ch == "\n" || ch == "\t"
+        }
+
+        var result = Set<Int>()
+        var invalidCount = 0
+
+        for tokenSub in tokens {
+            let token = String(tokenSub).trimmingCharacters(in: .whitespaces)
+            if token.isEmpty { continue }
+
+            let parts = token.split { ch in
+                ch == "-" || ch == "–" || ch == "—"
+            }
+
+            if parts.count == 1 {
+                if let value = Int(parts[0]), value >= 1, value <= pageCount {
+                    result.insert(value)
+                } else {
+                    invalidCount += 1
+                }
+            } else if parts.count == 2 {
+                guard let start = Int(parts[0]), let end = Int(parts[1]) else {
+                    invalidCount += 1
+                    continue
+                }
+
+                let lower = min(start, end)
+                let upper = max(start, end)
+                if upper < 1 || lower > pageCount {
+                    invalidCount += 1
+                    continue
+                }
+
+                let clampedLower = max(1, lower)
+                let clampedUpper = min(pageCount, upper)
+                for page in clampedLower...clampedUpper {
+                    result.insert(page)
+                }
+            } else {
+                invalidCount += 1
+            }
+        }
+
+        selectedPages = result
+
+        if result.isEmpty {
+            status = "No valid pages found."
+        } else if invalidCount == 0 {
+            status = "Selected \(result.count) pages."
+        } else {
+            status = "Selected \(result.count) pages. Ignored \(invalidCount) token(s)."
+        }
+    }
+
+    func setCurrentPageNumber(_ number: Int) {
+        let clamped = clampPageNumber(number)
+        if clamped != currentPageNumber {
+            currentPageNumber = clamped
+        }
+    }
+
+    func stepPage(_ delta: Int) {
+        setCurrentPageNumber(currentPageNumber + delta)
+    }
+
+    func goToPreviousMarkedPage() {
+        guard !markedPages.isEmpty else { return }
+        let current = currentPageNumber
+        if let prev = markedPages.last(where: { $0 < current }) {
+            setCurrentPageNumber(prev)
+        }
+    }
+
+    func goToNextMarkedPage() {
+        guard !markedPages.isEmpty else { return }
+        let current = currentPageNumber
+        if let next = markedPages.first(where: { $0 > current }) {
+            setCurrentPageNumber(next)
+        }
+    }
+
+    func zoomIn() {
+        adjustZoom(by: 0.1)
+    }
+
+    func zoomOut() {
+        adjustZoom(by: -0.1)
+    }
+
+    func resetZoom() {
+        previewScale = 1.0
+    }
+
+    func handleCleanedPageChanged(_ page: PDFPage) {
+        applyCleaning(to: page)
+        guard let doc = cleanedPreview else { return }
+        let index = doc.index(for: page)
+        if index != NSNotFound {
+            if index > 0, let prev = doc.page(at: index - 1) {
+                applyCleaning(to: prev)
+            }
+            if index + 1 < doc.pageCount, let next = doc.page(at: index + 1) {
+                applyCleaning(to: next)
+            }
+        }
+    }
+
+    private func adjustZoom(by delta: CGFloat) {
+        let newValue = previewScale + delta
+        let clamped = min(max(newValue, minPreviewScale), maxPreviewScale)
+        previewScale = clamped
+    }
+
+    private func handleSelectionChanged() {
+        resetCleanedPreview()
+        if perPageTypeCounts.isEmpty, !isScanning {
+            scanMarkedPages()
+        } else {
+            updateMarkedPagesFromCounts()
+        }
+        markEstimateStale()
+    }
+
+    private func handleScopeChanged() {
+        if removalScope == .selected, selectedPages.isEmpty, !markedPages.isEmpty {
+            isUpdatingSelection = true
+            selectedPages = Set(markedPages)
+            isUpdatingSelection = false
+        }
+        resetCleanedPreview()
+        updateSelectedPagesCounts()
+        markEstimateStale()
+    }
+
+    private func handleSelectedPagesChanged() {
+        resetCleanedPreview()
+        updateSelectedPagesCounts()
+        markEstimateStale()
+    }
+
+    private func markEstimateStale(clearValue: Bool = false) {
+        estimateToken = UUID()
+        isEstimateStale = true
+        lastEstimateKey = nil
+        isEstimatingSize = false
+        estimateProgress = 0
+        if clearValue {
+            estimatedFileSizeBytes = nil
+        }
+    }
+
+    private func loadDocuments(url: URL) {
+        originalPreview = PDFDocument(url: url)
+        cleanedPreview = PDFDocument(url: url)
+        pageCount = originalPreview?.pageCount ?? 0
+        cleanedProcessedPages.removeAll()
+        applyCleaningForPageNumber(currentPageNumber)
+        updateCurrentPageCounts()
+    }
+
+    private func resetCleanedPreview() {
+        guard let url = inputURL else { return }
+        cleanedPreview = PDFDocument(url: url)
+        cleanedProcessedPages.removeAll()
+        applyCleaningForPageNumber(currentPageNumber)
+        updateCurrentPageCounts()
+    }
+
+    private func applyCleaningForPageNumber(_ number: Int) {
+        guard shouldProcessPage(number) else { return }
+        guard let doc = cleanedPreview else { return }
+        let clamped = clampPageNumber(number)
+        guard let page = doc.page(at: clamped - 1) else { return }
+        applyCleaning(to: page)
+    }
+
+    private func applyCleaning(to page: PDFPage) {
+        guard let doc = cleanedPreview else { return }
+        let index = doc.index(for: page)
+        if index == NSNotFound { return }
+        let pageNumber = index + 1
+        if !shouldProcessPage(pageNumber) { return }
+        if cleanedProcessedPages.contains(pageNumber) { return }
+
+        for annot in page.annotations {
+            let shouldHide = PDFAnnotationStripper.shouldRemove(annot, selectedTypes: selectedTypes)
+            annot.shouldDisplay = !shouldHide
+        }
+
+        cleanedProcessedPages.insert(pageNumber)
+    }
+
+    private func shouldProcessPage(_ pageNumber: Int) -> Bool {
+        switch removalScope {
+        case .all:
+            return true
+        case .selected:
+            return selectedPages.contains(pageNumber)
+        }
+    }
+
+    private func runStrip(to output: URL, completion: ((Bool) -> Void)? = nil) {
+        guard let inputURL else {
+            status = "Please select a PDF first."
+            completion?(false)
+            return
+        }
+        if isRunning { return }
+
+        if selectedTypes.isEmpty {
+            status = "No annotation types selected."
+            completion?(false)
+            return
+        }
+
+        if removalScope == .selected && selectedPages.isEmpty {
+            status = "No pages selected."
+            completion?(false)
+            return
+        }
+
+        let selectedSnapshot = selectedTypes
+        let pagesSnapshot = removalScope == .selected ? selectedPages : nil
+
+        progress = 0
+        isRunning = true
+        status = "Processing..."
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                try PDFAnnotationStripper.strip(
+                    input: inputURL,
+                    output: output,
+                    selectedTypes: selectedSnapshot,
+                    pagesToProcess: pagesSnapshot,
+                    progress: { p in
+                        DispatchQueue.main.async {
+                            self?.progress = p
+                        }
+                    }
+                )
+
+                DispatchQueue.main.async {
+                    self?.isRunning = false
+                    self?.status = "Done: \(output.lastPathComponent)"
+                    if let size = self?.fileSize(for: output) {
+                        self?.estimatedFileSizeBytes = size
+                        self?.lastEstimateKey = self?.makeEstimateKey()
+                        self?.isEstimateStale = false
+                    }
+                    completion?(true)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.isRunning = false
+                    self?.status = "Failed: \(error.localizedDescription)"
+                    completion?(false)
+                }
+            }
+        }
+    }
+
+    private func scanMarkedPages() {
+        guard let inputURL else { return }
+
+        let token = UUID()
+        scanToken = token
+        let typesSnapshot = selectedTypes
+
+        isScanning = true
+        scanProgress = 0
+        markedPages = []
+        documentTypeCounts = [:]
+        perPageTypeCounts = [:]
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            guard let doc = PDFDocument(url: inputURL) else {
+                DispatchQueue.main.async {
+                    if self.scanToken == token {
+                        self.isScanning = false
+                    }
+                }
+                return
+            }
+
+            let total = doc.pageCount
+            var pages: [Int] = []
+            var perPage: [Int: [AnnotationKind: Int]] = [:]
+            var totalCounts: [AnnotationKind: Int] = [:]
+
+            if total == 0 {
+                DispatchQueue.main.async {
+                    if self.scanToken == token {
+                        self.markedPages = []
+                        self.documentTypeCounts = [:]
+                        self.perPageTypeCounts = [:]
+                        self.isScanning = false
+                        self.scanProgress = 0
+                        self.currentPageTypeCounts = [:]
+                        self.selectedPagesTypeCounts = [:]
+                    }
+                }
+                return
+            }
+
+            for index in 0..<total {
+                if self.scanToken != token { return }
+                autoreleasepool {
+                    if let page = doc.page(at: index) {
+                        var pageCounts: [AnnotationKind: Int] = [:]
+                        for annot in page.annotations {
+                            if let kind = PDFAnnotationStripper.kind(for: annot) {
+                                pageCounts[kind, default: 0] += 1
+                                totalCounts[kind, default: 0] += 1
+                            }
+                        }
+
+                        if !pageCounts.isEmpty {
+                            perPage[index + 1] = pageCounts
+                        }
+
+                        if !typesSnapshot.isEmpty {
+                            let hasSelected = pageCounts.contains { typesSnapshot.contains($0.key) && $0.value > 0 }
+                            if hasSelected {
+                                pages.append(index + 1)
+                            }
+                        }
+                    }
+                }
+
+                if index % self.scanUpdateStride == 0 {
+                    let progress = Double(index + 1) / Double(total)
+                    DispatchQueue.main.async {
+                        if self.scanToken == token {
+                            self.scanProgress = progress
+                        }
+                    }
+                }
+            }
+
+            DispatchQueue.main.async {
+                if self.scanToken == token {
+                    self.perPageTypeCounts = perPage
+                    self.documentTypeCounts = totalCounts
+                    self.markedPages = pages.sorted()
+                    self.isScanning = false
+                    self.scanProgress = 1
+
+                    if self.removalScope == .selected {
+                        self.isUpdatingSelection = true
+                        if self.selectedPages.isEmpty {
+                            self.selectedPages = Set(self.markedPages)
+                        }
+                        self.isUpdatingSelection = false
+                    }
+
+                    self.updateCurrentPageCounts()
+                    self.updateSelectedPagesCounts()
+                }
+            }
+        }
+    }
+
+    private func estimateOutputSize(forKey key: String) {
+        guard let inputURL else { return }
+        if isRunning { return }
+
+        let canEstimate = !selectedTypes.isEmpty && (removalScope == .all || !selectedPages.isEmpty)
+        if !canEstimate {
+            estimatedFileSizeBytes = nil
+            lastEstimateKey = nil
+            isEstimateStale = true
+            return
+        }
+
+        let token = UUID()
+        estimateToken = token
+        let typesSnapshot = selectedTypes
+        let pagesSnapshot = removalScope == .selected ? selectedPages : nil
+
+        isEstimatingSize = true
+        estimateProgress = 0
+        estimatedFileSizeBytes = nil
+        isEstimateStale = true
+
+        let tempName = "pdfmarkcleaner_estimate_\(UUID().uuidString).pdf"
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(tempName)
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            do {
+                try PDFAnnotationStripper.strip(
+                    input: inputURL,
+                    output: tempURL,
+                    selectedTypes: typesSnapshot,
+                    pagesToProcess: pagesSnapshot,
+                    progress: { p in
+                        DispatchQueue.main.async {
+                            if self.estimateToken == token {
+                                self.estimateProgress = p
+                            }
+                        }
+                    },
+                    shouldCancel: { self.estimateToken != token }
+                )
+
+                let size = self.fileSize(for: tempURL)
+                DispatchQueue.main.async {
+                    if self.estimateToken == token {
+                        self.estimatedFileSizeBytes = size
+                        self.lastEstimateKey = key
+                        self.isEstimatingSize = false
+                        self.isEstimateStale = false
+                    }
+                }
+            } catch StripError.cancelled {
+                DispatchQueue.main.async {
+                    if self.estimateToken == token {
+                        self.isEstimatingSize = false
+                        self.isEstimateStale = true
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    if self.estimateToken == token {
+                        self.isEstimatingSize = false
+                        self.estimatedFileSizeBytes = nil
+                        self.isEstimateStale = true
+                    }
+                }
+            }
+
+            try? FileManager.default.removeItem(at: tempURL)
+        }
+    }
+
+    private func updateFileSize(for url: URL) {
+        inputFileSizeBytes = fileSize(for: url) ?? 0
+    }
+
+    private func updateMarkedPagesFromCounts() {
+        if selectedTypes.isEmpty {
+            markedPages = []
+            return
+        }
+
+        var pages: [Int] = []
+        for (pageNumber, counts) in perPageTypeCounts {
+            let hasSelected = counts.contains { selectedTypes.contains($0.key) && $0.value > 0 }
+            if hasSelected {
+                pages.append(pageNumber)
+            }
+        }
+
+        markedPages = pages.sorted()
+
+        if removalScope == .selected, selectedPages.isEmpty, !markedPages.isEmpty {
+            isUpdatingSelection = true
+            selectedPages = Set(markedPages)
+            isUpdatingSelection = false
+        }
+
+        updateSelectedPagesCounts()
+    }
+
+    private func updateCurrentPageCounts() {
+        let pageNumber = clampPageNumber(currentPageNumber)
+        if let cached = perPageTypeCounts[pageNumber] {
+            currentPageTypeCounts = cached
+            return
+        }
+
+        guard let doc = originalPreview ?? (inputURL != nil ? PDFDocument(url: inputURL!) : nil),
+              let page = doc.page(at: pageNumber - 1) else {
+            currentPageTypeCounts = [:]
+            return
+        }
+
+        currentPageTypeCounts = countsForPage(page)
+    }
+
+    private func updateSelectedPagesCounts() {
+        guard !selectedPages.isEmpty else {
+            selectedPagesTypeCounts = [:]
+            return
+        }
+        guard !perPageTypeCounts.isEmpty else {
+            selectedPagesTypeCounts = [:]
+            return
+        }
+
+        var counts: [AnnotationKind: Int] = [:]
+        for page in selectedPages {
+            if let pageCounts = perPageTypeCounts[page] {
+                for (kind, value) in pageCounts {
+                    counts[kind, default: 0] += value
+                }
+            }
+        }
+        selectedPagesTypeCounts = counts
+    }
+
+    private func countsForPage(_ page: PDFPage) -> [AnnotationKind: Int] {
+        var counts: [AnnotationKind: Int] = [:]
+        for annot in page.annotations {
+            if let kind = PDFAnnotationStripper.kind(for: annot) {
+                counts[kind, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    private func fileSize(for url: URL) -> Int64? {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return attributes?[.size] as? Int64
+    }
+
+    private func makeEstimateKey() -> String {
+        let inputPath = inputURL?.path ?? ""
+        let size = inputFileSizeBytes
+        let types = selectedTypes.map { $0.rawValue }.sorted().joined(separator: ",")
+        let pages: String
+        if removalScope == .selected {
+            pages = selectedPages.sorted().map(String.init).joined(separator: ",")
+        } else {
+            pages = ""
+        }
+        return "\(inputPath)|\(size)|types:\(types)|scope:\(removalScope.rawValue)|pages:\(pages)"
+    }
+
+    private func clampPageNumber(_ number: Int) -> Int {
+        if pageCount == 0 { return max(1, number) }
+        return max(1, min(number, pageCount))
+    }
+
+    private func confirm(title: String, message: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Confirm")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func resetState(statusMessage: String) {
+        inputURL = nil
+        outputURL = nil
+        originalPreview = nil
+        cleanedPreview = nil
+        pageCount = 0
+        currentPageNumber = 1
+        markedPages = []
+        selectedPages = []
+        isScanning = false
+        scanProgress = 0
+        previewScale = 1.0
+        cleanedProcessedPages.removeAll()
+        scanToken = UUID()
+        estimateToken = UUID()
+        estimatedFileSizeBytes = nil
+        isEstimatingSize = false
+        estimateProgress = 0
+        isEstimateStale = true
+        inputFileSizeBytes = 0
+        lastEstimateKey = nil
+        documentTypeCounts = [:]
+        currentPageTypeCounts = [:]
+        selectedPagesTypeCounts = [:]
+        perPageTypeCounts = [:]
+        status = statusMessage
+    }
+}
