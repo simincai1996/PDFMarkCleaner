@@ -4,17 +4,23 @@ import AppKit
 
 struct ContentView: View {
     @StateObject private var model = AppModel()
+    @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
+
+    private var localizer: Localizer {
+        Localizer(language: AppLanguage(rawValue: appLanguageRaw) ?? .system)
+    }
 
     var body: some View {
         ZStack {
             GlassBackground()
             HStack(spacing: 16) {
-                Sidebar(model: model)
-                    .frame(width: 340)
+                Sidebar(model: model, localizer: localizer)
+                    .frame(width: 370)
 
                 PreviewColumn(
-                    title: "Original",
-                    subtitle: "Before cleanup",
+                    title: localizer.t(.original),
+                    subtitle: localizer.t(.beforeCleanup),
+                    emptyText: localizer.t(.noPreview),
                     document: model.originalPreview,
                     scale: model.previewScale,
                     currentPageNumber: $model.currentPageNumber,
@@ -22,8 +28,9 @@ struct ContentView: View {
                 )
 
                 PreviewColumn(
-                    title: "After Clean",
-                    subtitle: "Expected result",
+                    title: localizer.t(.afterClean),
+                    subtitle: localizer.t(.expectedResult),
+                    emptyText: localizer.t(.noPreview),
                     document: model.cleanedPreview,
                     scale: model.previewScale,
                     currentPageNumber: $model.currentPageNumber,
@@ -71,6 +78,7 @@ private struct GlassBackground: View {
 
 private struct Sidebar: View {
     @ObservedObject var model: AppModel
+    let localizer: Localizer
     @State private var pageRangeInput = ""
 
     private let pageFormatter: NumberFormatter = {
@@ -96,25 +104,27 @@ private struct Sidebar: View {
 
     var body: some View {
         GlassCard {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Text("PDF Mark Cleaner")
-                        .font(.title3)
-                        .bold()
+            VStack(alignment: .leading, spacing: 12) {
+                Text(localizer.t(.appTitle))
+                    .font(.title3)
+                    .bold()
+                    .padding(.top, 2)
 
-                    SidebarSection(title: "Files") {
-                        VStack(alignment: .leading, spacing: 10) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        SidebarSection(title: localizer.t(.files)) {
+                        VStack(alignment: .leading, spacing: 18) {
                             HStack {
-                                Text("Input")
+                                Text(localizer.t(.input))
                                     .font(.subheadline)
                                     .bold()
                                 Spacer()
-                                Button("Select PDF") { model.pickInput() }
+                                Button(localizer.t(.selectPDF)) { model.pickInput() }
                                     .disabled(model.isRunning)
-                                Button("Clear") { model.clearSelection() }
+                                Button(localizer.t(.clear)) { model.clearSelection() }
                                     .disabled(model.inputURL == nil || model.isRunning)
                             }
-                            Text(model.inputURL?.lastPathComponent ?? "No file selected")
+                            Text(model.inputURL?.lastPathComponent ?? localizer.t(.noFileSelected))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
@@ -122,16 +132,16 @@ private struct Sidebar: View {
                             Divider()
 
                             HStack {
-                                Text("Output")
+                                Text(localizer.t(.output))
                                     .font(.subheadline)
                                     .bold()
                                 Spacer()
-                                Button("Select Output") { model.pickOutput() }
+                                Button(localizer.t(.selectOutput)) { model.pickOutput() }
                                     .disabled(model.inputURL == nil || model.isRunning)
                             }
                             let name = model.outputURL?.lastPathComponent
                                 ?? model.suggestedOutputURL?.lastPathComponent
-                                ?? "Auto"
+                                ?? localizer.t(.auto)
                             Text(name)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -139,9 +149,9 @@ private struct Sidebar: View {
                         }
                     }
 
-                    SidebarSection(title: "Action") {
+                    SidebarSection(title: localizer.t(.action)) {
                         VStack(alignment: .leading, spacing: 10) {
-                            Button(model.isRunning ? "Processing..." : "Start") {
+                            Button(model.isRunning ? localizer.t(.processing) : localizer.t(.start)) {
                                 model.start()
                             }
                             .buttonStyle(.borderedProminent)
@@ -149,25 +159,25 @@ private struct Sidebar: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                             LazyVGrid(columns: actionColumns, spacing: 8) {
-                                Button("Save") {
+                                Button(localizer.t(.save)) {
                                     model.saveAs()
                                 }
                                 .disabled(!model.canProcess || model.isRunning)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                                Button("Export Mark") {
+                                Button(localizer.t(.exportMark)) {
                                     model.exportMarkedPages()
                                 }
                                 .disabled(model.inputURL == nil || model.isRunning)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                                Button("Replace") {
+                                Button(localizer.t(.replace)) {
                                     model.replaceOriginal()
                                 }
                                 .disabled(!model.canProcess || model.isRunning)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                                Button("Delete Original") {
+                                Button(localizer.t(.deleteOriginal)) {
                                     model.deleteOriginal()
                                 }
                                 .disabled(model.inputURL == nil || model.isRunning)
@@ -181,11 +191,11 @@ private struct Sidebar: View {
                         }
                     }
 
-                    SidebarSection(title: "Annotation Types") {
+                    SidebarSection(title: localizer.t(.annotationTypes)) {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
-                                Button("All") { model.selectedTypes = Set(AnnotationKind.allCases) }
-                                Button("None") { model.selectedTypes = [] }
+                                Button(localizer.t(.all)) { model.selectedTypes = Set(AnnotationKind.allCases) }
+                                Button(localizer.t(.none)) { model.selectedTypes = [] }
                                 Spacer()
                             }
 
@@ -199,26 +209,26 @@ private struct Sidebar: View {
                         }
                     }
 
-                    SidebarSection(title: "Size") {
+                    SidebarSection(title: localizer.t(.size)) {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Text("Current")
+                                Text(localizer.t(.current))
                                 Spacer()
                                 Text(sizeText(for: model.inputFileSizeBytes))
                                     .foregroundStyle(.secondary)
                             }
                             HStack {
-                                Text("Estimated")
+                                Text(localizer.t(.estimated))
                                 Spacer()
                                 if model.isEstimatingSize {
-                                    Text("Estimating...")
+                                    Text(localizer.t(.estimating))
                                         .foregroundStyle(.secondary)
                                 } else if let estimated = model.estimatedFileSizeBytes {
                                     HStack(spacing: 6) {
                                         Text(sizeText(for: estimated))
                                             .foregroundStyle(.secondary)
                                         if model.isEstimateStale {
-                                            Text("Outdated")
+                                            Text(localizer.t(.outdated))
                                                 .font(.caption2)
                                                 .foregroundStyle(.orange)
                                         }
@@ -228,7 +238,7 @@ private struct Sidebar: View {
                                         .foregroundStyle(.secondary)
                                 }
                             }
-                            Button(model.isEstimateStale ? "Estimate Size" : "Re-estimate") {
+                            Button(model.isEstimateStale ? localizer.t(.estimateSize) : localizer.t(.reEstimate)) {
                                 model.estimateSize()
                             }
                             .disabled(!model.canEstimate || model.isRunning || model.isEstimatingSize)
@@ -239,11 +249,12 @@ private struct Sidebar: View {
                         }
                     }
 
-                    SidebarSection(title: "Remove Pages") {
+                    SidebarSection(title: localizer.t(.removePages)) {
                         VStack(alignment: .leading, spacing: 10) {
                             Picker("", selection: $model.removalScope) {
                                 ForEach(RemovalScope.allCases) { scope in
-                                    Text(scope.title).tag(scope)
+                                    let label = scope == .all ? localizer.t(.allPages) : localizer.t(.selectedPages)
+                                    Text(label).tag(scope)
                                 }
                             }
                             .pickerStyle(.segmented)
@@ -252,21 +263,21 @@ private struct Sidebar: View {
                             if model.removalScope == .selected {
                                 VStack(alignment: .leading, spacing: 8) {
                                     HStack(spacing: 8) {
-                                        TextField("Pages (1-5,8,10)", text: $pageRangeInput)
+                                        TextField(localizer.t(.pagesPlaceholder), text: $pageRangeInput)
                                             .textFieldStyle(.roundedBorder)
-                                        Button("Apply") {
+                                        Button(localizer.t(.apply)) {
                                             model.applyPageRangeInput(pageRangeInput)
                                         }
                                         .disabled(model.inputURL == nil || model.isRunning)
                                     }
 
                                     HStack(spacing: 8) {
-                                        Button("Select All") { model.selectAllMarkedPages() }
+                                        Button(localizer.t(.selectAll)) { model.selectAllMarkedPages() }
                                             .disabled(model.markedPages.isEmpty)
-                                        Button("Clear") { model.clearSelectedPages() }
+                                        Button(localizer.t(.clear)) { model.clearSelectedPages() }
                                             .disabled(model.selectedPages.isEmpty)
                                         Spacer()
-                                        Text("Selected: \(model.selectedPages.count)")
+                                        Text(localizer.format(.selectedCount, model.selectedPages.count))
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
@@ -275,7 +286,7 @@ private struct Sidebar: View {
                         }
                     }
 
-                    SidebarSection(title: "Navigation") {
+                    SidebarSection(title: localizer.t(.navigation)) {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack(spacing: 8) {
                                 Button {
@@ -285,7 +296,7 @@ private struct Sidebar: View {
                                 }
                                 .disabled(model.currentPageNumber <= 1)
 
-                                TextField("Page", value: pageBinding, formatter: pageFormatter)
+                                TextField(localizer.t(.page), value: pageBinding, formatter: pageFormatter)
                                     .frame(width: 60)
                                     .multilineTextAlignment(.center)
                                     .textFieldStyle(.roundedBorder)
@@ -305,21 +316,21 @@ private struct Sidebar: View {
                         }
                     }
 
-                    SidebarSection(title: "Marked Pages") {
+                    SidebarSection(title: localizer.t(.markedPages)) {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack(spacing: 8) {
-                                Button("Prev Marked") {
+                                Button(localizer.t(.prevMarked)) {
                                     model.goToPreviousMarkedPage()
                                 }
                                 .disabled(model.markedPages.isEmpty)
 
-                                Button("Next Marked") {
+                                Button(localizer.t(.nextMarked)) {
                                     model.goToNextMarkedPage()
                                 }
                                 .disabled(model.markedPages.isEmpty)
 
                                 Spacer()
-                                Text("Marked: \(model.markedPages.count)")
+                                Text(localizer.format(.markedCount, model.markedPages.count))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -355,18 +366,19 @@ private struct Sidebar: View {
                                     }
 
                                     if model.markedPages.isEmpty && !model.isScanning {
-                                        Text("No marks found")
+                                        Text(localizer.t(.noMarksFound))
                                             .foregroundStyle(.secondary)
                                             .font(.caption)
                                     }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             }
+                            .background(ScrollViewStyleConfigurator())
                             .frame(maxHeight: 180)
                         }
                     }
 
-                    SidebarSection(title: "Annotation Counts") {
+                    SidebarSection(title: localizer.t(.annotationCounts)) {
                         VStack(alignment: .leading, spacing: 12) {
                             if model.isScanning {
                                 HStack(spacing: 8) {
@@ -375,15 +387,15 @@ private struct Sidebar: View {
                                 }
                             }
 
-                            CountsBlock(title: "All Pages", counts: model.documentTypeCounts)
-                            CountsBlock(title: "Current Page", counts: model.currentPageTypeCounts)
+                            CountsBlock(title: localizer.t(.allPages), counts: model.documentTypeCounts, noneText: localizer.t(.none))
+                            CountsBlock(title: localizer.t(.currentPage), counts: model.currentPageTypeCounts, noneText: localizer.t(.none))
                             if model.removalScope == .selected {
-                                CountsBlock(title: "Selected Pages", counts: model.selectedPagesTypeCounts)
+                                CountsBlock(title: localizer.t(.selectedPages), counts: model.selectedPagesTypeCounts, noneText: localizer.t(.none))
                             }
                         }
                     }
 
-                    SidebarSection(title: "Zoom") {
+                    SidebarSection(title: localizer.t(.zoom)) {
                         HStack(spacing: 8) {
                             Button {
                                 model.zoomOut()
@@ -403,7 +415,7 @@ private struct Sidebar: View {
                             }
                             .disabled(model.originalPreview == nil)
 
-                            Button("Reset") {
+                            Button(localizer.t(.reset)) {
                                 model.resetZoom()
                             }
                             .disabled(model.originalPreview == nil)
@@ -416,12 +428,13 @@ private struct Sidebar: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .padding(.top, 4)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
+                    .padding(.trailing, 10)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
+                .background(ScrollViewStyleConfigurator())
             }
-            .background(ScrollViewStyleConfigurator())
-            .scrollIndicators(.visible)
             .onChange(of: model.inputURL) { _, _ in
                 pageRangeInput = ""
             }
@@ -496,8 +509,8 @@ private struct DashedDivider: View {
                 path.addLine(to: CGPoint(x: proxy.size.width, y: 0.5))
             }
             .stroke(
-                Color.black.opacity(0.18),
-                style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [4, 6])
+                Color.black.opacity(0.24),
+                style: StrokeStyle(lineWidth: 1.2, lineCap: .round, dash: [4, 6])
             )
         }
         .frame(maxWidth: .infinity)
@@ -512,7 +525,13 @@ private struct ScrollViewStyleConfigurator: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async {
-            guard let scrollView = nsView.enclosingScrollView else { return }
+            var view: NSView? = nsView
+            var scrollView: NSScrollView?
+            while let current = view, scrollView == nil {
+                scrollView = current as? NSScrollView
+                view = current.superview
+            }
+            guard let scrollView else { return }
             scrollView.scrollerStyle = .overlay
             scrollView.autohidesScrollers = true
             scrollView.verticalScroller?.alphaValue = 0.25
@@ -524,6 +543,7 @@ private struct ScrollViewStyleConfigurator: NSViewRepresentable {
 private struct CountsBlock: View {
     let title: String
     let counts: [AnnotationKind: Int]
+    let noneText: String
 
     private var total: Int {
         counts.values.reduce(0, +)
@@ -548,7 +568,7 @@ private struct CountsBlock: View {
             }
 
             if rows.isEmpty {
-                Text("None")
+                Text(noneText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -569,6 +589,7 @@ private struct CountsBlock: View {
 private struct PreviewColumn: View {
     let title: String
     let subtitle: String
+    let emptyText: String
     let document: PDFDocument?
     let scale: CGFloat
     @Binding var currentPageNumber: Int
@@ -614,7 +635,7 @@ private struct PreviewColumn: View {
                     } else {
                         VStack(spacing: 6) {
                             Image(systemName: "doc")
-                            Text("No preview")
+                            Text(emptyText)
                         }
                         .foregroundStyle(.secondary)
                     }

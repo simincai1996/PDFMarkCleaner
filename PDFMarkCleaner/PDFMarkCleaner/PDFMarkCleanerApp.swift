@@ -13,5 +13,8 @@ struct PDFMarkCleanerApp: App {
         WindowGroup {
             ContentView()
         }
+        Settings {
+            SettingsView()
+        }
     }
 }
