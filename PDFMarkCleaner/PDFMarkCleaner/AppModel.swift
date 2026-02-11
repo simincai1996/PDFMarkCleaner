@@ -18,7 +18,41 @@ enum RemovalScope: String, CaseIterable, Identifiable {
     }
 }
 
+enum ProcessingMode: String, CaseIterable, Identifiable {
+    case single
+    case batch
+
+    var id: String { rawValue }
+}
+
+private struct FileState {
+    var outputURL: URL?
+    var originalPreview: PDFDocument?
+    var cleanedPreview: PDFDocument?
+    var pageCount: Int
+    var currentPageNumber: Int
+    var markedPages: [Int]
+    var selectedPages: Set<Int>
+    var perPageTypeCounts: [Int: [AnnotationKind: Int]]
+    var documentTypeCounts: [AnnotationKind: Int]
+    var currentPageTypeCounts: [AnnotationKind: Int]
+    var selectedPagesTypeCounts: [AnnotationKind: Int]
+    var inputFileSizeBytes: Int64
+    var estimatedFileSizeBytes: Int64?
+    var isEstimateStale: Bool
+    var lastEstimateKey: String?
+    var cleanedProcessedPages: Set<Int>
+}
+
 final class AppModel: ObservableObject {
+    @Published var processingMode: ProcessingMode = .single {
+        didSet {
+            handleModeChanged()
+        }
+    }
+    @Published var batchInputURLs: [URL] = []
+    @Published var batchIndex: Int = 0
+    @Published var batchOutputDirectory: URL?
     @Published var inputURL: URL?
     @Published var outputURL: URL?
     @Published var selectedTypes: Set<AnnotationKind> = Set(AnnotationKind.allCases) {
@@ -79,29 +113,51 @@ final class AppModel: ObservableObject {
     private let minPreviewScale: CGFloat = 0.5
     private let maxPreviewScale: CGFloat = 3.0
     private let scanUpdateStride = 12
+    private var fileStates: [URL: FileState] = [:]
+
+    var isBatchMode: Bool {
+        processingMode == .batch
+    }
 
     var suggestedOutputURL: URL? {
         guard let inputURL else { return nil }
-        let base = inputURL.deletingPathExtension().lastPathComponent
+        return suggestedOutputURL(for: inputURL)
+    }
+
+    func suggestedOutputURL(for url: URL) -> URL {
+        let base = url.deletingPathExtension().lastPathComponent
         let filename = base + "_cleaned.pdf"
-        return inputURL.deletingLastPathComponent().appendingPathComponent(filename)
+        if isBatchMode, let batchDir = batchOutputDirectory {
+            return batchDir.appendingPathComponent(filename)
+        }
+        return url.deletingLastPathComponent().appendingPathComponent(filename)
+    }
+
+    private var hasInput: Bool {
+        if isBatchMode {
+            return !batchInputURLs.isEmpty
+        }
+        return inputURL != nil
     }
 
     var canProcess: Bool {
-        guard inputURL != nil else { return false }
+        guard hasInput else { return false }
         if selectedTypes.isEmpty { return false }
-        if removalScope == .selected && selectedPages.isEmpty { return false }
+        if removalScope == .selected && !isBatchMode && selectedPages.isEmpty { return false }
         return true
     }
 
     var canEstimate: Bool {
         guard inputURL != nil else { return false }
         if selectedTypes.isEmpty { return false }
-        if removalScope == .selected && selectedPages.isEmpty { return false }
+        if removalScope == .selected && !isBatchMode && selectedPages.isEmpty { return false }
         return true
     }
 
     func pickInput() {
+        saveCurrentState()
+        processingMode = .single
+
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [UTType.pdf]
         panel.canChooseFiles = true
@@ -120,16 +176,67 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func pickBatchInputs() {
+        saveCurrentState()
+        processingMode = .batch
+
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType.pdf]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+
+        if panel.runModal() == .OK {
+            let urls = panel.urls
+            batchInputURLs = urls
+            batchIndex = 0
+            fileStates = fileStates.filter { urls.contains($0.key) }
+            if urls.isEmpty {
+                resetState(statusMessage: "Select a PDF file.")
+            } else {
+                switchToBatchIndex(0)
+                status = "Selected: \(urls.count) files"
+            }
+        }
+    }
+
+    func pickBatchOutputDirectory() {
+        guard !batchInputURLs.isEmpty else {
+            status = "Please select PDF files first."
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+
+        if panel.runModal() == .OK, let url = panel.url {
+            batchOutputDirectory = url
+            status = "Output folder: \(url.lastPathComponent)"
+        }
+    }
+
     func clearSelection() {
         if isRunning {
             status = "Processing... Please wait."
             return
         }
 
+        if isBatchMode {
+            fileStates.removeAll()
+            batchInputURLs = []
+            batchIndex = 0
+            batchOutputDirectory = nil
+        }
         resetState(statusMessage: "Select a PDF file.")
     }
 
     func pickOutput() {
+        if isBatchMode {
+            status = "Output selection is disabled in batch mode."
+            return
+        }
         guard let inputURL else {
             status = "Please select a PDF first."
             return
@@ -147,6 +254,10 @@ final class AppModel: ObservableObject {
     }
 
     func start() {
+        if isBatchMode {
+            startBatch()
+            return
+        }
         guard canProcess else {
             status = "Select types/pages before processing."
             return
@@ -162,6 +273,10 @@ final class AppModel: ObservableObject {
     }
 
     func saveAs() {
+        if isBatchMode {
+            status = "Save is disabled in batch mode."
+            return
+        }
         guard canProcess else {
             status = "Select types/pages before saving."
             return
@@ -248,6 +363,10 @@ final class AppModel: ObservableObject {
     }
 
     func replaceOriginal() {
+        if isBatchMode {
+            status = "Replace is disabled in batch mode."
+            return
+        }
         guard canProcess else {
             status = "Select types/pages before replacing."
             return
@@ -287,6 +406,10 @@ final class AppModel: ObservableObject {
     }
 
     func deleteOriginal() {
+        if isBatchMode {
+            deleteCurrentBatchItem()
+            return
+        }
         guard let inputURL else {
             status = "Please select a PDF first."
             return
@@ -304,6 +427,158 @@ final class AppModel: ObservableObject {
             var trashed: NSURL?
             try FileManager.default.trashItem(at: inputURL, resultingItemURL: &trashed)
             resetState(statusMessage: "Moved to Trash: \(inputURL.lastPathComponent)")
+        } catch {
+            status = "Delete failed: \(error.localizedDescription)"
+        }
+    }
+
+    func switchToBatchIndex(_ index: Int) {
+        guard !batchInputURLs.isEmpty else {
+            resetState(statusMessage: "Select a PDF file.")
+            return
+        }
+        guard !isRunning else {
+            status = "Processing... Please wait."
+            return
+        }
+
+        let clamped = max(0, min(index, batchInputURLs.count - 1))
+        if let current = inputURL, current != batchInputURLs[clamped] {
+            saveCurrentState()
+        }
+
+        batchIndex = clamped
+        let url = batchInputURLs[clamped]
+        inputURL = url
+        outputURL = nil
+        scanToken = UUID()
+        estimateToken = UUID()
+        isEstimatingSize = false
+        estimateProgress = 0
+
+        if restoreState(for: url) {
+            status = "Selected: \(url.lastPathComponent)"
+            return
+        }
+
+        currentPageNumber = 1
+        selectedPages = []
+        markedPages = []
+        documentTypeCounts = [:]
+        perPageTypeCounts = [:]
+        currentPageTypeCounts = [:]
+        selectedPagesTypeCounts = [:]
+        updateFileSize(for: url)
+        loadDocuments(url: url)
+        scanMarkedPages()
+        markEstimateStale(clearValue: true)
+        status = "Selected: \(url.lastPathComponent)"
+    }
+
+    func stepBatchItem(_ delta: Int) {
+        switchToBatchIndex(batchIndex + delta)
+    }
+
+    private func startBatch() {
+        guard !batchInputURLs.isEmpty else {
+            status = "Please select PDF files first."
+            return
+        }
+        guard !selectedTypes.isEmpty else {
+            status = "No annotation types selected."
+            return
+        }
+        if isRunning { return }
+
+        let urls = batchInputURLs
+        let typesSnapshot = selectedTypes
+
+        progress = 0
+        isRunning = true
+        status = "Processing batch..."
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            var lastError: Error?
+
+            for (index, url) in urls.enumerated() {
+                do {
+                    let output = self.suggestedOutputURL(for: url)
+                    try PDFAnnotationStripper.strip(
+                        input: url,
+                        output: output,
+                        selectedTypes: typesSnapshot,
+                        pagesToProcess: nil,
+                        progress: { p in
+                            let overall = (Double(index) + p) / Double(urls.count)
+                            DispatchQueue.main.async {
+                                self.progress = overall
+                            }
+                        }
+                    )
+
+                    let size = self.fileSize(for: output)
+                    DispatchQueue.main.async {
+                        if url == self.inputURL {
+                            self.estimatedFileSizeBytes = size
+                            self.isEstimateStale = false
+                            self.lastEstimateKey = self.makeEstimateKey()
+                        }
+                        if var state = self.fileStates[url] {
+                            state.estimatedFileSizeBytes = size
+                            state.isEstimateStale = false
+                            self.fileStates[url] = state
+                        }
+                    }
+                } catch {
+                    lastError = error
+                    break
+                }
+            }
+
+            DispatchQueue.main.async {
+                self.isRunning = false
+                if let error = lastError {
+                    self.status = "Batch failed: \(error.localizedDescription)"
+                } else {
+                    self.progress = 1
+                    self.status = "Batch done: \(urls.count) files"
+                }
+            }
+        }
+    }
+
+    private func deleteCurrentBatchItem() {
+        guard let inputURL else {
+            status = "Please select a PDF first."
+            return
+        }
+        if isRunning { return }
+
+        guard confirm(
+            title: "Delete original PDF?",
+            message: "The file will be moved to Trash."
+        ) else {
+            return
+        }
+
+        do {
+            var trashed: NSURL?
+            try FileManager.default.trashItem(at: inputURL, resultingItemURL: &trashed)
+            fileStates.removeValue(forKey: inputURL)
+            if let index = batchInputURLs.firstIndex(of: inputURL) {
+                batchInputURLs.remove(at: index)
+                if batchInputURLs.isEmpty {
+                    batchIndex = 0
+                    resetState(statusMessage: "Moved to Trash: \(inputURL.lastPathComponent)")
+                    return
+                }
+                let newIndex = min(index, batchInputURLs.count - 1)
+                switchToBatchIndex(newIndex)
+                status = "Moved to Trash: \(inputURL.lastPathComponent)"
+            } else {
+                resetState(statusMessage: "Moved to Trash: \(inputURL.lastPathComponent)")
+            }
         } catch {
             status = "Delete failed: \(error.localizedDescription)"
         }
@@ -447,6 +722,68 @@ final class AppModel: ObservableObject {
         let newValue = previewScale + delta
         let clamped = min(max(newValue, minPreviewScale), maxPreviewScale)
         previewScale = clamped
+    }
+
+    private func handleModeChanged() {
+        saveCurrentState()
+        if isBatchMode {
+            removalScope = .all
+            selectedPages = []
+            if batchInputURLs.isEmpty, let current = inputURL {
+                batchInputURLs = [current]
+                batchIndex = 0
+            }
+            if !batchInputURLs.isEmpty {
+                switchToBatchIndex(min(batchIndex, batchInputURLs.count - 1))
+            } else {
+                resetState(statusMessage: "Select a PDF file.")
+            }
+        }
+    }
+
+    private func saveCurrentState() {
+        guard let inputURL else { return }
+        fileStates[inputURL] = FileState(
+            outputURL: outputURL,
+            originalPreview: originalPreview,
+            cleanedPreview: cleanedPreview,
+            pageCount: pageCount,
+            currentPageNumber: currentPageNumber,
+            markedPages: markedPages,
+            selectedPages: selectedPages,
+            perPageTypeCounts: perPageTypeCounts,
+            documentTypeCounts: documentTypeCounts,
+            currentPageTypeCounts: currentPageTypeCounts,
+            selectedPagesTypeCounts: selectedPagesTypeCounts,
+            inputFileSizeBytes: inputFileSizeBytes,
+            estimatedFileSizeBytes: estimatedFileSizeBytes,
+            isEstimateStale: isEstimateStale,
+            lastEstimateKey: lastEstimateKey,
+            cleanedProcessedPages: cleanedProcessedPages
+        )
+    }
+
+    private func restoreState(for url: URL) -> Bool {
+        guard let state = fileStates[url] else { return false }
+        outputURL = state.outputURL
+        originalPreview = state.originalPreview
+        cleanedPreview = state.cleanedPreview
+        pageCount = state.pageCount
+        currentPageNumber = state.currentPageNumber
+        markedPages = state.markedPages
+        selectedPages = state.selectedPages
+        perPageTypeCounts = state.perPageTypeCounts
+        documentTypeCounts = state.documentTypeCounts
+        currentPageTypeCounts = state.currentPageTypeCounts
+        selectedPagesTypeCounts = state.selectedPagesTypeCounts
+        inputFileSizeBytes = state.inputFileSizeBytes
+        estimatedFileSizeBytes = state.estimatedFileSizeBytes
+        isEstimateStale = state.isEstimateStale
+        lastEstimateKey = state.lastEstimateKey
+        cleanedProcessedPages = state.cleanedProcessedPages
+        isEstimatingSize = false
+        estimateProgress = 0
+        return true
     }
 
     private func handleSelectionChanged() {
@@ -885,6 +1222,7 @@ final class AppModel: ObservableObject {
     private func resetState(statusMessage: String) {
         inputURL = nil
         outputURL = nil
+        batchOutputDirectory = nil
         originalPreview = nil
         cleanedPreview = nil
         pageCount = 0

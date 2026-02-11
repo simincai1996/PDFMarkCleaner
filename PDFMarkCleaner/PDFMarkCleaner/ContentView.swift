@@ -5,17 +5,23 @@ import AppKit
 struct ContentView: View {
     @StateObject private var model = AppModel()
     @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
+    @AppStorage("enableAdvancedOptions") private var enableAdvancedOptions = false
+    @AppStorage("backgroundTheme") private var backgroundThemeRaw: String = BackgroundTheme.frost.rawValue
 
     private var localizer: Localizer {
         Localizer(language: AppLanguage(rawValue: appLanguageRaw) ?? .system)
     }
 
+    private var backgroundTheme: BackgroundTheme {
+        BackgroundTheme(rawValue: backgroundThemeRaw) ?? .frost
+    }
+
     var body: some View {
         ZStack {
-            GlassBackground()
+            GlassBackground(theme: backgroundTheme)
             HStack(spacing: 16) {
-                Sidebar(model: model, localizer: localizer)
-                    .frame(width: 370)
+                Sidebar(model: model, localizer: localizer, advancedOptionsEnabled: enableAdvancedOptions)
+                    .frame(width: 380)
 
                 PreviewColumn(
                     title: localizer.t(.original),
@@ -42,15 +48,22 @@ struct ContentView: View {
             .padding(18)
         }
         .frame(minWidth: 1220, minHeight: 740)
+        .onChange(of: enableAdvancedOptions) { _, enabled in
+            if !enabled {
+                model.processingMode = .single
+            }
+        }
     }
 }
 
 private struct GlassBackground: View {
+    let theme: BackgroundTheme
+
     var body: some View {
         LinearGradient(
             colors: [
-                Color(red: 0.95, green: 0.97, blue: 1.0),
-                Color(red: 0.88, green: 0.93, blue: 0.98)
+                theme.topColor,
+                theme.bottomColor
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -63,7 +76,7 @@ private struct GlassBackground: View {
                     .blur(radius: 90)
                     .offset(x: -220, y: -180)
                 Circle()
-                    .fill(Color.blue.opacity(0.25))
+                    .fill(theme.accentColor.opacity(0.25))
                     .blur(radius: 130)
                     .offset(x: 260, y: 220)
                 RoundedRectangle(cornerRadius: 120)
@@ -79,7 +92,13 @@ private struct GlassBackground: View {
 private struct Sidebar: View {
     @ObservedObject var model: AppModel
     let localizer: Localizer
+    let advancedOptionsEnabled: Bool
     @State private var pageRangeInput = ""
+    private let appIcon: NSImage = {
+        let icon = NSImage(named: "AppIcon") ?? NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
+        icon.isTemplate = false
+        return icon
+    }()
 
     private let pageFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -105,53 +124,142 @@ private struct Sidebar: View {
     var body: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 12) {
-                Text(localizer.t(.appTitle))
-                    .font(.title3)
-                    .bold()
-                    .padding(.top, 2)
+                HStack(spacing: 8) {
+                    Image(nsImage: appIcon)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 22, height: 22)
+                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    Text(localizer.t(.appTitle))
+                        .font(.title3)
+                        .bold()
+                }
+                .padding(.top, 2)
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
-                        SidebarSection(title: localizer.t(.files)) {
+                    SidebarSection(title: localizer.t(.files)) {
                         VStack(alignment: .leading, spacing: 18) {
-                            HStack {
-                                Text(localizer.t(.input))
-                                    .font(.subheadline)
-                                    .bold()
-                                Spacer()
-                                Button(localizer.t(.selectPDF)) { model.pickInput() }
-                                    .disabled(model.isRunning)
-                                Button(localizer.t(.clear)) { model.clearSelection() }
-                                    .disabled(model.inputURL == nil || model.isRunning)
+                            if advancedOptionsEnabled {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(localizer.t(.mode))
+                                        .font(.subheadline)
+                                        .bold()
+                                    Picker("", selection: $model.processingMode) {
+                                        Text(localizer.t(.single)).tag(ProcessingMode.single)
+                                        Text(localizer.t(.batch)).tag(ProcessingMode.batch)
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .labelsHidden()
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                }
                             }
-                            Text(model.inputURL?.lastPathComponent ?? localizer.t(.noFileSelected))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
 
-                            Divider()
+                            if advancedOptionsEnabled && model.isBatchMode {
+                                HStack {
+                                    Text(localizer.t(.input))
+                                        .font(.subheadline)
+                                        .bold()
+                                    Spacer()
+                                    Button(localizer.t(.selectPDFs)) { model.pickBatchInputs() }
+                                        .disabled(model.isRunning)
+                                    Button(localizer.t(.clear)) { model.clearSelection() }
+                                        .disabled(model.batchInputURLs.isEmpty || model.isRunning)
+                                }
+                                Text(localizer.format(.filesSelected, model.batchInputURLs.count))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
 
-                            HStack {
-                                Text(localizer.t(.output))
-                                    .font(.subheadline)
-                                    .bold()
-                                Spacer()
-                                Button(localizer.t(.selectOutput)) { model.pickOutput() }
-                                    .disabled(model.inputURL == nil || model.isRunning)
+                                ScrollView {
+                                    LazyVStack(alignment: .leading, spacing: 6) {
+                                        ForEach(Array(model.batchInputURLs.enumerated()), id: \.offset) { index, url in
+                                            Button {
+                                                model.switchToBatchIndex(index)
+                                            } label: {
+                                                HStack(spacing: 8) {
+                                                    Text(url.lastPathComponent)
+                                                        .lineLimit(1)
+                                                    Spacer()
+                                                    if index == model.batchIndex {
+                                                        Image(systemName: "checkmark")
+                                                    }
+                                                }
+                                            }
+                                            .buttonStyle(.plain)
+                                            .padding(.vertical, 4)
+                                            .padding(.horizontal, 6)
+                                            .background(index == model.batchIndex ? Color.white.opacity(0.6) : Color.clear)
+                                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                        }
+
+                                        if model.batchInputURLs.isEmpty {
+                                            Text(localizer.t(.noFileSelected))
+                                                .foregroundStyle(.secondary)
+                                                .font(.caption)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .background(ScrollViewStyleConfigurator())
+                                .frame(maxHeight: 140)
+
+                                Divider()
+
+                                HStack {
+                                    Text(localizer.t(.output))
+                                        .font(.subheadline)
+                                        .bold()
+                                    Spacer()
+                                    Button(localizer.t(.selectOutput)) { model.pickBatchOutputDirectory() }
+                                        .disabled(model.batchInputURLs.isEmpty || model.isRunning)
+                                    Button(localizer.t(.auto)) { model.batchOutputDirectory = nil }
+                                        .disabled(model.batchOutputDirectory == nil)
+                                }
+                                Text(model.batchOutputDirectory?.lastPathComponent ?? localizer.t(.sameAsInputFolder))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                HStack {
+                                    Text(localizer.t(.input))
+                                        .font(.subheadline)
+                                        .bold()
+                                    Spacer()
+                                    Button(localizer.t(.selectPDF)) { model.pickInput() }
+                                        .disabled(model.isRunning)
+                                    Button(localizer.t(.clear)) { model.clearSelection() }
+                                        .disabled(model.inputURL == nil || model.isRunning)
+                                }
+                                Text(model.inputURL?.lastPathComponent ?? localizer.t(.noFileSelected))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+
+                                Divider()
+
+                                HStack {
+                                    Text(localizer.t(.output))
+                                        .font(.subheadline)
+                                        .bold()
+                                    Spacer()
+                                    Button(localizer.t(.selectOutput)) { model.pickOutput() }
+                                        .disabled(model.inputURL == nil || model.isRunning)
+                                }
+                                let name = model.outputURL?.lastPathComponent
+                                    ?? model.suggestedOutputURL?.lastPathComponent
+                                    ?? localizer.t(.auto)
+                                Text(name)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
                             }
-                            let name = model.outputURL?.lastPathComponent
-                                ?? model.suggestedOutputURL?.lastPathComponent
-                                ?? localizer.t(.auto)
-                            Text(name)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
                         }
                     }
 
                     SidebarSection(title: localizer.t(.action)) {
                         VStack(alignment: .leading, spacing: 10) {
-                            Button(model.isRunning ? localizer.t(.processing) : localizer.t(.start)) {
+                            let isBatch = advancedOptionsEnabled && model.isBatchMode
+                            Button(model.isRunning ? localizer.t(.processing) : (isBatch ? localizer.t(.startBatch) : localizer.t(.start))) {
                                 model.start()
                             }
                             .buttonStyle(.borderedProminent)
@@ -162,7 +270,7 @@ private struct Sidebar: View {
                                 Button(localizer.t(.save)) {
                                     model.saveAs()
                                 }
-                                .disabled(!model.canProcess || model.isRunning)
+                                .disabled(!model.canProcess || model.isRunning || isBatch)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
                                 Button(localizer.t(.exportMark)) {
@@ -174,13 +282,13 @@ private struct Sidebar: View {
                                 Button(localizer.t(.replace)) {
                                     model.replaceOriginal()
                                 }
-                                .disabled(!model.canProcess || model.isRunning)
+                                .disabled(!model.canProcess || model.isRunning || isBatch)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
                                 Button(localizer.t(.deleteOriginal)) {
                                     model.deleteOriginal()
                                 }
-                                .disabled(model.inputURL == nil || model.isRunning)
+                                .disabled(model.inputURL == nil || model.isRunning || isBatch)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             }
 
@@ -204,6 +312,40 @@ private struct Sidebar: View {
                                     Toggle(kind.title, isOn: typeBinding(for: kind))
                                         .toggleStyle(.checkbox)
                                         .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                        }
+                    }
+
+                    if advancedOptionsEnabled && model.isBatchMode {
+                        SidebarSection(title: localizer.t(.previewFile)) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                let total = model.batchInputURLs.count
+                                let current = total == 0 ? 0 : (model.batchIndex + 1)
+                                let name = model.inputURL?.lastPathComponent ?? localizer.t(.noFileSelected)
+                                HStack(spacing: 8) {
+                                    Button {
+                                        model.stepBatchItem(-1)
+                                    } label: {
+                                        Image(systemName: "chevron.left")
+                                    }
+                                    .frame(width: 28, height: 28)
+                                    .disabled(model.batchIndex <= 0)
+
+                                    Text("\(current)/\(total) \(name)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .multilineTextAlignment(.center)
+                                        .lineLimit(2)
+                                        .frame(maxWidth: .infinity, alignment: .center)
+
+                                    Button {
+                                        model.stepBatchItem(1)
+                                    } label: {
+                                        Image(systemName: "chevron.right")
+                                    }
+                                    .frame(width: 28, height: 28)
+                                    .disabled(model.batchIndex >= model.batchInputURLs.count - 1)
                                 }
                             }
                         }
@@ -251,35 +393,41 @@ private struct Sidebar: View {
 
                     SidebarSection(title: localizer.t(.removePages)) {
                         VStack(alignment: .leading, spacing: 10) {
-                            Picker("", selection: $model.removalScope) {
-                                ForEach(RemovalScope.allCases) { scope in
-                                    let label = scope == .all ? localizer.t(.allPages) : localizer.t(.selectedPages)
-                                    Text(label).tag(scope)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
-
-                            if model.removalScope == .selected {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack(spacing: 8) {
-                                        TextField(localizer.t(.pagesPlaceholder), text: $pageRangeInput)
-                                            .textFieldStyle(.roundedBorder)
-                                        Button(localizer.t(.apply)) {
-                                            model.applyPageRangeInput(pageRangeInput)
-                                        }
-                                        .disabled(model.inputURL == nil || model.isRunning)
+                            if advancedOptionsEnabled && model.isBatchMode {
+                                Text(localizer.t(.allPages))
+                                    .font(.subheadline)
+                                    .bold()
+                            } else {
+                                Picker("", selection: $model.removalScope) {
+                                    ForEach(RemovalScope.allCases) { scope in
+                                        let label = scope == .all ? localizer.t(.allPages) : localizer.t(.selectedPages)
+                                        Text(label).tag(scope)
                                     }
+                                }
+                                .pickerStyle(.segmented)
+                                .labelsHidden()
 
-                                    HStack(spacing: 8) {
-                                        Button(localizer.t(.selectAll)) { model.selectAllMarkedPages() }
-                                            .disabled(model.markedPages.isEmpty)
-                                        Button(localizer.t(.clear)) { model.clearSelectedPages() }
-                                            .disabled(model.selectedPages.isEmpty)
-                                        Spacer()
-                                        Text(localizer.format(.selectedCount, model.selectedPages.count))
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                if model.removalScope == .selected {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack(spacing: 8) {
+                                            TextField(localizer.t(.pagesPlaceholder), text: $pageRangeInput)
+                                                .textFieldStyle(.roundedBorder)
+                                            Button(localizer.t(.apply)) {
+                                                model.applyPageRangeInput(pageRangeInput)
+                                            }
+                                            .disabled(model.inputURL == nil || model.isRunning)
+                                        }
+
+                                        HStack(spacing: 8) {
+                                            Button(localizer.t(.selectAll)) { model.selectAllMarkedPages() }
+                                                .disabled(model.markedPages.isEmpty)
+                                            Button(localizer.t(.clear)) { model.clearSelectedPages() }
+                                                .disabled(model.selectedPages.isEmpty)
+                                            Spacer()
+                                            Text(localizer.format(.selectedCount, model.selectedPages.count))
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
                                     }
                                 }
                             }

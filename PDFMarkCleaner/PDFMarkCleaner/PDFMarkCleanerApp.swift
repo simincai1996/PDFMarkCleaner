@@ -6,9 +6,16 @@
 //
 
 import SwiftUI
+import AppKit
 
 @main
 struct PDFMarkCleanerApp: App {
+    init() {
+        let icon = NSImage(named: "AppIcon") ?? NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
+        icon.isTemplate = false
+        NSApplication.shared.applicationIconImage = icon
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

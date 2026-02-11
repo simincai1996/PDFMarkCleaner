@@ -69,6 +69,22 @@ enum LKey {
     case chineseTraditional
     case german
     case spanish
+    case advancedOptions
+    case mode
+    case single
+    case batch
+    case selectPDFs
+    case filesSelected
+    case currentFile
+    case previewFile
+    case startBatch
+    case sameAsInputFolder
+    case background
+    case themeFrost
+    case themeSky
+    case themeMint
+    case themePeach
+    case themeSand
 }
 
 struct Localizer {
@@ -174,6 +190,22 @@ struct Localizer {
         case .chineseTraditional: return "Chinese (Traditional)"
         case .german: return "German"
         case .spanish: return "Spanish"
+        case .advancedOptions: return "Advanced Options"
+        case .mode: return "Mode"
+        case .single: return "Single"
+        case .batch: return "Batch"
+        case .selectPDFs: return "Select PDFs"
+        case .filesSelected: return "Files: %d"
+        case .currentFile: return "Current File"
+        case .previewFile: return "Preview File"
+        case .startBatch: return "Start Batch"
+        case .sameAsInputFolder: return "Same as input folder"
+        case .background: return "Background"
+        case .themeFrost: return "Frost"
+        case .themeSky: return "Sky"
+        case .themeMint: return "Mint"
+        case .themePeach: return "Peach"
+        case .themeSand: return "Sand"
         }
     }
 
@@ -236,6 +268,22 @@ struct Localizer {
         case .chineseTraditional: return "繁体中文"
         case .german: return "德语"
         case .spanish: return "西班牙语"
+        case .advancedOptions: return "高级选项"
+        case .mode: return "模式"
+        case .single: return "单个"
+        case .batch: return "批量"
+        case .selectPDFs: return "选择 PDF"
+        case .filesSelected: return "文件：%d"
+        case .currentFile: return "当前文件"
+        case .previewFile: return "预览文件"
+        case .startBatch: return "开始批量"
+        case .sameAsInputFolder: return "与输入文件夹相同"
+        case .background: return "背景"
+        case .themeFrost: return "清霜"
+        case .themeSky: return "晴空"
+        case .themeMint: return "薄荷"
+        case .themePeach: return "蜜桃"
+        case .themeSand: return "暖沙"
         }
     }
 
@@ -298,6 +346,22 @@ struct Localizer {
         case .chineseTraditional: return "繁體中文"
         case .german: return "德語"
         case .spanish: return "西班牙語"
+        case .advancedOptions: return "高級選項"
+        case .mode: return "模式"
+        case .single: return "單個"
+        case .batch: return "批量"
+        case .selectPDFs: return "選擇 PDF"
+        case .filesSelected: return "檔案：%d"
+        case .currentFile: return "目前檔案"
+        case .previewFile: return "預覽檔案"
+        case .startBatch: return "開始批量"
+        case .sameAsInputFolder: return "與輸入資料夾相同"
+        case .background: return "背景"
+        case .themeFrost: return "清霜"
+        case .themeSky: return "晴空"
+        case .themeMint: return "薄荷"
+        case .themePeach: return "蜜桃"
+        case .themeSand: return "暖沙"
         }
     }
 
@@ -360,6 +424,22 @@ struct Localizer {
         case .chineseTraditional: return "Chinesisch (traditionell)"
         case .german: return "Deutsch"
         case .spanish: return "Spanisch"
+        case .advancedOptions: return "Erweiterte Optionen"
+        case .mode: return "Modus"
+        case .single: return "Einzeln"
+        case .batch: return "Stapel"
+        case .selectPDFs: return "PDFs wählen"
+        case .filesSelected: return "Dateien: %d"
+        case .currentFile: return "Aktuelle Datei"
+        case .previewFile: return "Vorschau-Datei"
+        case .startBatch: return "Stapel starten"
+        case .sameAsInputFolder: return "Wie Eingabeordner"
+        case .background: return "Hintergrund"
+        case .themeFrost: return "Frost"
+        case .themeSky: return "Himmel"
+        case .themeMint: return "Minze"
+        case .themePeach: return "Pfirsich"
+        case .themeSand: return "Sand"
         }
     }
 
@@ -422,6 +502,22 @@ struct Localizer {
         case .chineseTraditional: return "Chino (tradicional)"
         case .german: return "Alemán"
         case .spanish: return "Español"
+        case .advancedOptions: return "Opciones avanzadas"
+        case .mode: return "Modo"
+        case .single: return "Único"
+        case .batch: return "Lote"
+        case .selectPDFs: return "Seleccionar PDFs"
+        case .filesSelected: return "Archivos: %d"
+        case .currentFile: return "Archivo actual"
+        case .previewFile: return "Archivo de vista previa"
+        case .startBatch: return "Iniciar lote"
+        case .sameAsInputFolder: return "Igual que la carpeta de entrada"
+        case .background: return "Fondo"
+        case .themeFrost: return "Escarcha"
+        case .themeSky: return "Cielo"
+        case .themeMint: return "Menta"
+        case .themePeach: return "Melocotón"
+        case .themeSand: return "Arena"
         }
     }
 }
