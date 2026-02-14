@@ -568,7 +568,7 @@ private struct Sidebar: View {
                         }
                     }
 
-                    SidebarSection(title: localizer.t(.zoom)) {
+                    SidebarSection(title: localizer.t(.zoom), showsDivider: false) {
                         HStack(spacing: 8) {
                             Button {
                                 model.zoomOut()
@@ -597,10 +597,6 @@ private struct Sidebar: View {
                         }
                     }
 
-                    Text(model.status)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 4)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)
@@ -694,10 +690,12 @@ private struct BatchFileRow: View {
 
 private struct SidebarSection<Content: View>: View {
     let title: String
+    let showsDivider: Bool
     let content: Content
 
-    init(title: String, @ViewBuilder content: () -> Content) {
+    init(title: String, showsDivider: Bool = true, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.showsDivider = showsDivider
         self.content = content()
     }
 
@@ -707,8 +705,10 @@ private struct SidebarSection<Content: View>: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             content
-            DashedDivider()
-                .padding(.top, 6)
+            if showsDivider {
+                DashedDivider()
+                    .padding(.top, 6)
+            }
         }
     }
 }

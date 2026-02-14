@@ -71,10 +71,19 @@ enum IOSLKey {
     case appTitle
     case choosePDF
     case choosePDFs
+    case confirmAction
+    case cancel
+    case ok
     case start
     case startBatch
     case processing
     case clear
+    case saveAs
+    case replaceOriginal
+    case deleteOriginal
+    case saveBatch
+    case replaceBatch
+    case deleteBatch
     case mode
     case single
     case batch
@@ -122,6 +131,19 @@ enum IOSLKey {
     case pickFailed
     case noMarksFound
     case noMarksFoundInFile
+    case pickFileFailed
+    case pickFolderFailed
+    case saveFailed
+    case exportMarkFailed
+    case confirmReplaceSingleTitle
+    case confirmReplaceBatchTitle
+    case confirmDeleteSingleTitle
+    case confirmDeleteBatchTitle
+    case confirmReplaceSingleMessage
+    case confirmReplaceBatchMessageWithSkipped
+    case confirmReplaceBatchMessage
+    case confirmDeleteSingleMessage
+    case confirmDeleteBatchMessage
     case advancedOffMultiFileHint
     case settings
     case selectFileHint
@@ -236,10 +258,19 @@ struct IOSLocalizer {
         case .appTitle: return "PDF Mark Cleaner"
         case .choosePDF: return "Choose PDF"
         case .choosePDFs: return "Choose PDFs"
+        case .confirmAction: return "Confirm"
+        case .cancel: return "Cancel"
+        case .ok: return "OK"
         case .start: return "Start"
         case .startBatch: return "Start Batch"
         case .processing: return "Processing..."
         case .clear: return "Clear"
+        case .saveAs: return "Save As"
+        case .replaceOriginal: return "Replace Original"
+        case .deleteOriginal: return "Delete Original"
+        case .saveBatch: return "Save Batch"
+        case .replaceBatch: return "Replace Batch Originals"
+        case .deleteBatch: return "Delete Batch Originals"
         case .mode: return "Mode"
         case .single: return "Single"
         case .batch: return "Batch"
@@ -287,6 +318,19 @@ struct IOSLocalizer {
         case .pickFailed: return "Failed to select files."
         case .noMarksFound: return "No marks found"
         case .noMarksFoundInFile: return "No marks found in %@."
+        case .pickFileFailed: return "Failed to select files: %@"
+        case .pickFolderFailed: return "Failed to select folder: %@"
+        case .saveFailed: return "Save failed: %@"
+        case .exportMarkFailed: return "Mark report export failed: %@"
+        case .confirmReplaceSingleTitle: return "Replace current original file?"
+        case .confirmReplaceBatchTitle: return "Replace batch original files?"
+        case .confirmDeleteSingleTitle: return "Delete current original file?"
+        case .confirmDeleteBatchTitle: return "Delete batch original files?"
+        case .confirmReplaceSingleMessage: return "The cleaned file will overwrite the current original file. This action cannot be undone."
+        case .confirmReplaceBatchMessageWithSkipped: return "Will replace %d processed files and skip %d unprocessed files. This action cannot be undone."
+        case .confirmReplaceBatchMessage: return "Will replace original files for %d documents. This action cannot be undone."
+        case .confirmDeleteSingleMessage: return "This will delete the current original file. This action cannot be undone."
+        case .confirmDeleteBatchMessage: return "This will delete %d original files. This action cannot be undone."
         case .advancedOffMultiFileHint: return "Advanced batch is off; only the first file was imported."
         case .settings: return "Settings"
         case .selectFileHint: return "Select PDF first"
@@ -301,10 +345,19 @@ struct IOSLocalizer {
         case .appTitle: return "PDF 标记清理器"
         case .choosePDF: return "选择 PDF"
         case .choosePDFs: return "选择 PDF（多选）"
+        case .confirmAction: return "确认执行"
+        case .cancel: return "取消"
+        case .ok: return "确定"
         case .start: return "开始清理"
         case .startBatch: return "开始批处理"
         case .processing: return "处理中..."
         case .clear: return "清空"
+        case .saveAs: return "保存"
+        case .replaceOriginal: return "替换原文件"
+        case .deleteOriginal: return "删除原文件"
+        case .saveBatch: return "批量保存"
+        case .replaceBatch: return "批量替换原文件"
+        case .deleteBatch: return "批量删除原文件"
         case .mode: return "模式"
         case .single: return "单文件"
         case .batch: return "批处理"
@@ -324,7 +377,7 @@ struct IOSLocalizer {
         case .clearAllTypes: return "清空"
         case .selectedTypesSummary: return "已选 %d 类"
         case .export: return "导出"
-        case .exportMark: return "导出标记报告"
+        case .exportMark: return "导出标记"
         case .exportMarkHint: return "导出文件将包含类型统计和逐页标记详情。"
         case .exportHintSingle: return "处理完成后可分享导出文件。"
         case .exportHintBatch: return "批处理完成后可逐个分享输出文件。"
@@ -352,6 +405,19 @@ struct IOSLocalizer {
         case .pickFailed: return "文件选择失败。"
         case .noMarksFound: return "未找到标记"
         case .noMarksFoundInFile: return "在 %@ 中未找到标记。"
+        case .pickFileFailed: return "选择文件失败：%@"
+        case .pickFolderFailed: return "选择目录失败：%@"
+        case .saveFailed: return "另存失败：%@"
+        case .exportMarkFailed: return "标记报告导出失败：%@"
+        case .confirmReplaceSingleTitle: return "确认替换当前原文件？"
+        case .confirmReplaceBatchTitle: return "确认批量替换原文件？"
+        case .confirmDeleteSingleTitle: return "确认删除当前原文件？"
+        case .confirmDeleteBatchTitle: return "确认批量删除原文件？"
+        case .confirmReplaceSingleMessage: return "将使用已清理版本覆盖当前原文件，此操作不可撤销。"
+        case .confirmReplaceBatchMessageWithSkipped: return "将替换 %d 个已处理文档，跳过 %d 个未处理文档。此操作不可撤销。"
+        case .confirmReplaceBatchMessage: return "将替换 %d 个文档的原文件，此操作不可撤销。"
+        case .confirmDeleteSingleMessage: return "将删除当前原文件，此操作不可撤销。"
+        case .confirmDeleteBatchMessage: return "将删除 %d 个原文件，此操作不可撤销。"
         case .advancedOffMultiFileHint: return "已关闭高级批处理，仅导入第一个文件。"
         case .settings: return "设置"
         case .selectFileHint: return "请先选择 PDF"
@@ -366,10 +432,19 @@ struct IOSLocalizer {
         case .appTitle: return "PDF 標記清理器"
         case .choosePDF: return "選擇 PDF"
         case .choosePDFs: return "選擇 PDF（可多選）"
+        case .confirmAction: return "確認執行"
+        case .cancel: return "取消"
+        case .ok: return "確定"
         case .start: return "開始清理"
         case .startBatch: return "開始批次處理"
         case .processing: return "處理中..."
         case .clear: return "清空"
+        case .saveAs: return "儲存"
+        case .replaceOriginal: return "取代原檔"
+        case .deleteOriginal: return "刪除原檔"
+        case .saveBatch: return "批次儲存"
+        case .replaceBatch: return "批次取代原檔"
+        case .deleteBatch: return "批次刪除原檔"
         case .mode: return "模式"
         case .single: return "單檔"
         case .batch: return "批次"
@@ -389,7 +464,7 @@ struct IOSLocalizer {
         case .clearAllTypes: return "清空"
         case .selectedTypesSummary: return "已選 %d 類"
         case .export: return "匯出"
-        case .exportMark: return "匯出標記報告"
+        case .exportMark: return "匯出標記"
         case .exportMarkHint: return "匯出檔案將包含類型統計與逐頁標記詳情。"
         case .exportHintSingle: return "處理完成後可分享匯出檔案。"
         case .exportHintBatch: return "批次完成後可逐一分享輸出檔。"
@@ -417,6 +492,19 @@ struct IOSLocalizer {
         case .pickFailed: return "檔案選擇失敗。"
         case .noMarksFound: return "未找到標記"
         case .noMarksFoundInFile: return "在 %@ 中未找到標記。"
+        case .pickFileFailed: return "檔案選擇失敗：%@"
+        case .pickFolderFailed: return "目錄選擇失敗：%@"
+        case .saveFailed: return "另存失敗：%@"
+        case .exportMarkFailed: return "標記報告匯出失敗：%@"
+        case .confirmReplaceSingleTitle: return "確認取代目前原檔？"
+        case .confirmReplaceBatchTitle: return "確認批次取代原檔？"
+        case .confirmDeleteSingleTitle: return "確認刪除目前原檔？"
+        case .confirmDeleteBatchTitle: return "確認批次刪除原檔？"
+        case .confirmReplaceSingleMessage: return "將使用已清理版本覆蓋目前原檔，此操作不可復原。"
+        case .confirmReplaceBatchMessageWithSkipped: return "將取代 %d 個已處理文件，略過 %d 個未處理文件。此操作不可復原。"
+        case .confirmReplaceBatchMessage: return "將取代 %d 個文件的原檔，此操作不可復原。"
+        case .confirmDeleteSingleMessage: return "將刪除目前原檔，此操作不可復原。"
+        case .confirmDeleteBatchMessage: return "將刪除 %d 個原檔，此操作不可復原。"
         case .advancedOffMultiFileHint: return "已關閉進階批次，僅匯入第一個檔案。"
         case .settings: return "設定"
         case .selectFileHint: return "請先選擇 PDF"

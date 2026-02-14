@@ -110,6 +110,14 @@ struct IOSContentView: View {
         return localizer.t(.choosePDF)
     }
 
+    private var canClearInputs: Bool {
+        !model.isRunning && (model.inputURL != nil || !model.batchInputURLs.isEmpty)
+    }
+
+    private var canExportMark: Bool {
+        model.inputURL != nil && !model.isRunning
+    }
+
     private var pdfPickerAllowsMultipleSelection: Bool {
         enableAdvancedOptions || model.isBatchMode
     }
@@ -163,7 +171,7 @@ struct IOSContentView: View {
                     importPickedFiles(urls)
                 case .failure(let error):
                     model.errorMessage = error.localizedDescription
-                    model.status = "选择文件失败：\(error.localizedDescription)"
+                    model.status = localizer.format(.pickFileFailed, error.localizedDescription)
                 }
             case .folder:
                 switch result {
@@ -172,7 +180,7 @@ struct IOSContentView: View {
                     model.saveBatchOutputs(to: folder)
                 case .failure(let error):
                     model.errorMessage = error.localizedDescription
-                    model.status = "选择目录失败：\(error.localizedDescription)"
+                    model.status = localizer.format(.pickFolderFailed, error.localizedDescription)
                 }
             }
         }
@@ -191,7 +199,7 @@ struct IOSContentView: View {
                 model.markSingleSaveAsCompleted(destination: savedURL)
             case .failure(let error):
                 model.errorMessage = error.localizedDescription
-                model.status = "另存失败：\(error.localizedDescription)"
+                model.status = localizer.format(.saveFailed, error.localizedDescription)
             }
         }
         .fileExporter(
@@ -205,7 +213,7 @@ struct IOSContentView: View {
                 model.markMarkReportExportCompleted(destination: savedURL)
             case .failure(let error):
                 model.errorMessage = error.localizedDescription
-                model.status = "标记报告导出失败：\(error.localizedDescription)"
+                model.status = localizer.format(.exportMarkFailed, error.localizedDescription)
             }
         }
         .confirmationDialog(
@@ -219,10 +227,10 @@ struct IOSContentView: View {
             titleVisibility: .visible,
             presenting: pendingCriticalAction
         ) { action in
-            Button("确认执行", role: .destructive) {
+            Button(localizer.t(.confirmAction), role: .destructive) {
                 performCriticalAction(action)
             }
-            Button("取消", role: .cancel) {
+            Button(localizer.t(.cancel), role: .cancel) {
                 pendingCriticalAction = nil
             }
         } message: { action in
@@ -237,7 +245,7 @@ struct IOSContentView: View {
                 }
             }
         ), presenting: activeAlert) { alert in
-            Button("OK", role: .cancel) {
+            Button(localizer.t(.ok), role: .cancel) {
                 switch alert {
                 case .processError:
                     model.errorMessage = nil
@@ -311,7 +319,6 @@ struct IOSContentView: View {
                         pageRangeSection
                     }
                     annotationTypeSection
-                    statusSection
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -328,28 +335,37 @@ struct IOSContentView: View {
                     presentPDFPicker()
                 }
                 .buttonStyle(.borderedProminent)
-                .fixedSize(horizontal: true, vertical: false)
-
-                Button(localizer.t(.clear), role: .destructive) {
-                    model.clearInputs()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(model.isRunning || (model.inputURL == nil && model.batchInputURLs.isEmpty))
 
                 Button(startButtonTitle) {
                     model.process()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!model.canProcess)
-                .fixedSize(horizontal: true, vertical: false)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(model.inputURL?.lastPathComponent ?? localizer.t(.selectFileHint))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            HStack(spacing: 8) {
+                Label(model.inputURL?.lastPathComponent ?? localizer.t(.selectFileHint), systemImage: "doc")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                Button(role: .destructive) {
+                    model.clearInputs()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 28, height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color(uiColor: .secondarySystemBackground))
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(!canClearInputs)
+            }
         }
         .modifier(SidebarCardStyle())
     }
@@ -452,14 +468,16 @@ struct IOSContentView: View {
         } label: {
             HStack {
                 Text(localizer.t(.language))
+                    .foregroundStyle(.primary)
                 Spacer(minLength: 8)
                 Text(localizer.languageName(appLanguage))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.primary)
             }
         }
+        .buttonStyle(.plain)
     }
 
     private var phoneBackgroundMenu: some View {
@@ -472,14 +490,16 @@ struct IOSContentView: View {
         } label: {
             HStack {
                 Text(localizer.t(.background))
+                    .foregroundStyle(.primary)
                 Spacer(minLength: 8)
                 Text(localizer.themeName(backgroundTheme))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.primary)
             }
         }
+        .buttonStyle(.plain)
     }
 
     private var sidebar: some View {
@@ -494,7 +514,6 @@ struct IOSContentView: View {
                     }
                     annotationTypeSection
                     exportSection
-                    statusSection
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -527,25 +546,29 @@ struct IOSContentView: View {
             }
 
             if isPad {
-                Button(fileButtonTitle) {
-                    presentPDFPicker()
-                }
-                .buttonStyle(.borderedProminent)
-                .frame(maxWidth: .infinity)
+                HStack(spacing: 8) {
+                    Button(fileButtonTitle) {
+                        presentPDFPicker()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .frame(maxWidth: .infinity)
 
-                Button(startButtonTitle) {
-                    model.process()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!model.canProcess)
-                .frame(maxWidth: .infinity)
+                    Button(startButtonTitle) {
+                        model.process()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!model.canProcess)
+                    .frame(maxWidth: .infinity)
 
-                Button(localizer.t(.clear), role: .destructive) {
-                    model.clearInputs()
+                    Button(role: .destructive) {
+                        model.clearInputs()
+                    } label: {
+                        Image(systemName: "trash")
+                            .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!canClearInputs)
                 }
-                .buttonStyle(.bordered)
-                .disabled(model.isRunning || (model.inputURL == nil && model.batchInputURLs.isEmpty))
-                .frame(maxWidth: .infinity)
             } else {
                 HStack(spacing: 8) {
                     Button(fileButtonTitle) {
@@ -560,13 +583,16 @@ struct IOSContentView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.canProcess)
                     .frame(maxWidth: .infinity)
-                }
 
-                Button(localizer.t(.clear), role: .destructive) {
-                    model.clearInputs()
+                    Button(role: .destructive) {
+                        model.clearInputs()
+                    } label: {
+                        Image(systemName: "trash")
+                            .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!canClearInputs)
                 }
-                .buttonStyle(.bordered)
-                .disabled(model.isRunning || (model.inputURL == nil && model.batchInputURLs.isEmpty))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -740,24 +766,38 @@ struct IOSContentView: View {
         DisclosureGroup(isExpanded: $showExportSection) {
             VStack(alignment: .leading, spacing: 8) {
                 if model.isBatchMode {
-                    HStack(spacing: 8) {
-                        Button("批量另存") {
-                            presentFolderPicker()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!model.canSaveAsBatch)
+                    VStack(spacing: 8) {
+                        HStack(spacing: 8) {
+                            Button(localizer.t(.saveBatch)) {
+                                presentFolderPicker()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .frame(maxWidth: .infinity)
+                            .disabled(!model.canSaveAsBatch)
 
-                        Button("批量替代原件", role: .destructive) {
-                            pendingCriticalAction = .replaceBatch
+                            Button(localizer.t(.replaceBatch), role: .destructive) {
+                                pendingCriticalAction = .replaceBatch
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity)
+                            .disabled(!model.canReplaceOriginal)
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(!model.canReplaceOriginal)
 
-                        Button("批量删除原件", role: .destructive) {
-                            pendingCriticalAction = .deleteBatch
+                        HStack(spacing: 8) {
+                            Button(localizer.t(.exportMark)) {
+                                prepareMarkReportExport()
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity)
+                            .disabled(!canExportMark)
+
+                            Button(localizer.t(.deleteBatch), role: .destructive) {
+                                pendingCriticalAction = .deleteBatch
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity)
+                            .disabled(!model.canDeleteOriginal)
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(!model.canDeleteOriginal)
                     }
 
                     if model.batchOutputURLs.isEmpty {
@@ -778,24 +818,38 @@ struct IOSContentView: View {
                         }
                     }
                 } else if let output = model.outputURL {
-                    HStack(spacing: 8) {
-                        Button("另存为") {
-                            prepareSingleSaveAs()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!model.canSaveAsSingle)
+                    VStack(spacing: 8) {
+                        HStack(spacing: 8) {
+                            Button(localizer.t(.saveAs)) {
+                                prepareSingleSaveAs()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .frame(maxWidth: .infinity)
+                            .disabled(!model.canSaveAsSingle)
 
-                        Button("替代原件", role: .destructive) {
-                            pendingCriticalAction = .replaceSingle
+                            Button(localizer.t(.replaceOriginal), role: .destructive) {
+                                pendingCriticalAction = .replaceSingle
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity)
+                            .disabled(!model.canReplaceOriginal)
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(!model.canReplaceOriginal)
 
-                        Button("删除原件", role: .destructive) {
-                            pendingCriticalAction = .deleteSingle
+                        HStack(spacing: 8) {
+                            Button(localizer.t(.exportMark)) {
+                                prepareMarkReportExport()
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity)
+                            .disabled(!canExportMark)
+
+                            Button(localizer.t(.deleteOriginal), role: .destructive) {
+                                pendingCriticalAction = .deleteSingle
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity)
+                            .disabled(!model.canDeleteOriginal)
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(!model.canDeleteOriginal)
                     }
 
                     Text(output.lastPathComponent)
@@ -803,39 +857,47 @@ struct IOSContentView: View {
                         .lineLimit(2)
                     ShareLink(item: output) {
                         Label(localizer.t(.export), systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    HStack(spacing: 8) {
-                        Button("另存为") {
-                            prepareSingleSaveAs()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(true)
-
-                        Button("替代原件", role: .destructive) {}
-                            .buttonStyle(.bordered)
+                    VStack(spacing: 8) {
+                        HStack(spacing: 8) {
+                            Button(localizer.t(.saveAs)) {
+                                prepareSingleSaveAs()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .frame(maxWidth: .infinity)
                             .disabled(true)
 
-                        Button("删除原件", role: .destructive) {
-                            pendingCriticalAction = .deleteSingle
+                            Button(localizer.t(.replaceOriginal), role: .destructive) {}
+                                .buttonStyle(.bordered)
+                                .frame(maxWidth: .infinity)
+                                .disabled(true)
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(!model.canDeleteOriginal)
+
+                        HStack(spacing: 8) {
+                            Button(localizer.t(.exportMark)) {
+                                prepareMarkReportExport()
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity)
+                            .disabled(!canExportMark)
+
+                            Button(localizer.t(.deleteOriginal), role: .destructive) {
+                                pendingCriticalAction = .deleteSingle
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity)
+                            .disabled(!model.canDeleteOriginal)
+                        }
                     }
 
                     Text(localizer.t(.exportHintSingle))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-
-                Divider()
-                    .padding(.vertical, 2)
-
-                Button(localizer.t(.exportMark)) {
-                    prepareMarkReportExport()
-                }
-                .buttonStyle(.bordered)
-                .disabled(model.inputURL == nil || model.isRunning)
 
                 Text(localizer.t(.exportMarkHint))
                     .font(.footnote)
@@ -847,21 +909,6 @@ struct IOSContentView: View {
             sectionHeader(title: localizer.t(.export), icon: "square.and.arrow.up")
         }
         .modifier(SidebarCardStyle())
-    }
-
-    private var statusSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ProgressView(value: model.progress, total: 1)
-            Text(model.status)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.32))
-        )
     }
 
     private var languageMenu: some View {
@@ -1209,32 +1256,32 @@ struct IOSContentView: View {
         guard let action else { return "" }
         switch action {
         case .replaceSingle:
-            return "确认替代当前原文件？"
+            return localizer.t(.confirmReplaceSingleTitle)
         case .replaceBatch:
-            return "确认批量替代原文件？"
+            return localizer.t(.confirmReplaceBatchTitle)
         case .deleteSingle:
-            return "确认删除当前原文件？"
+            return localizer.t(.confirmDeleteSingleTitle)
         case .deleteBatch:
-            return "确认批量删除原文件？"
+            return localizer.t(.confirmDeleteBatchTitle)
         }
     }
 
     private func confirmationMessage(for action: CriticalExportAction) -> String {
         switch action {
         case .replaceSingle:
-            return "将使用已清理版本覆盖当前原文件，此操作不可撤销。"
+            return localizer.t(.confirmReplaceSingleMessage)
         case .replaceBatch:
             let ready = model.batchReplaceReadyCount
             let total = model.batchDocumentCount
             let skipped = max(0, total - ready)
             if skipped > 0 {
-                return "将替代 \(ready) 个已处理文档，跳过 \(skipped) 个未处理文档。此操作不可撤销。"
+                return localizer.format(.confirmReplaceBatchMessageWithSkipped, ready, skipped)
             }
-            return "将替代 \(ready) 个文档的原文件，此操作不可撤销。"
+            return localizer.format(.confirmReplaceBatchMessage, ready)
         case .deleteSingle:
-            return "将删除当前原文件，此操作不可撤销。"
+            return localizer.t(.confirmDeleteSingleMessage)
         case .deleteBatch:
-            return "将删除 \(model.batchDocumentCount) 个原文件，此操作不可撤销。"
+            return localizer.format(.confirmDeleteBatchMessage, model.batchDocumentCount)
         }
     }
 
@@ -1343,7 +1390,7 @@ struct IOSContentView: View {
         .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.white.opacity(0.34))
+                .fill(Color(uiColor: .secondarySystemBackground))
         )
     }
 }
@@ -1405,33 +1452,42 @@ private struct SidebarCardStyle: ViewModifier {
 private struct IOSPDFKitView: UIViewRepresentable {
     let document: PDFDocument
 
-    func makeUIView(context: Context) -> PDFView {
-        let view = PDFView()
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> IOSAdaptivePDFView {
+        let view = IOSAdaptivePDFView()
         view.autoScales = false
         view.displayMode = .singlePageContinuous
         view.displayDirection = .vertical
         view.displaysPageBreaks = true
         view.backgroundColor = .systemBackground
+        view.onBoundsDidChange = { [weak view] in
+            guard let view else { return }
+            context.coordinator.scheduleScaleUpdate(for: view)
+        }
         view.document = nil
         view.document = document
-        DispatchQueue.main.async {
-            applyDefaultScale(to: view)
-        }
+        context.coordinator.scheduleScaleUpdate(for: view)
         return view
     }
 
-    func updateUIView(_ uiView: PDFView, context: Context) {
+    func updateUIView(_ uiView: IOSAdaptivePDFView, context: Context) {
         if uiView.document !== document {
             uiView.document = nil
             uiView.document = document
             uiView.goToFirstPage(nil)
-        }
-        DispatchQueue.main.async {
-            applyDefaultScale(to: uiView)
+            context.coordinator.scheduleScaleUpdate(for: uiView)
         }
     }
 
-    private func applyDefaultScale(to view: PDFView) {
+    static func dismantleUIView(_ uiView: IOSAdaptivePDFView, coordinator: Coordinator) {
+        uiView.onBoundsDidChange = nil
+        coordinator.cancelPendingScaleUpdate()
+    }
+
+    fileprivate static func applyDefaultScale(to view: PDFView) {
         let fitScale = view.scaleFactorForSizeToFit
         guard fitScale > 0 else {
             view.autoScales = true
@@ -1441,5 +1497,40 @@ private struct IOSPDFKitView: UIViewRepresentable {
         view.minScaleFactor = fitScale * 0.8
         view.maxScaleFactor = max(fitScale * 5, 4)
         view.scaleFactor = fitScale
+    }
+
+    final class Coordinator {
+        private var pendingScaleWork: DispatchWorkItem?
+
+        func scheduleScaleUpdate(for view: PDFView) {
+            pendingScaleWork?.cancel()
+            let work = DispatchWorkItem { [weak view] in
+                guard let view else { return }
+                IOSPDFKitView.applyDefaultScale(to: view)
+            }
+            pendingScaleWork = work
+            DispatchQueue.main.async(execute: work)
+        }
+
+        func cancelPendingScaleUpdate() {
+            pendingScaleWork?.cancel()
+            pendingScaleWork = nil
+        }
+    }
+}
+
+private final class IOSAdaptivePDFView: PDFView {
+    var onBoundsDidChange: (() -> Void)?
+    private var lastBoundsSize: CGSize = .zero
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let size = bounds.size
+        guard size.width > 0, size.height > 0 else { return }
+        guard abs(size.width - lastBoundsSize.width) > 0.5 || abs(size.height - lastBoundsSize.height) > 0.5 else {
+            return
+        }
+        lastBoundsSize = size
+        onBoundsDidChange?()
     }
 }
