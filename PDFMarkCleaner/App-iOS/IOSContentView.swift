@@ -21,6 +21,7 @@ struct IOSContentView: View {
     @State private var singleSaveDocument = PDFExportDocument(data: Data())
     @State private var singleSaveFilename = "cleaned.pdf"
     @State private var pendingCriticalAction: CriticalExportAction?
+    @State private var phoneTab: PhoneTab = .home
 
     @AppStorage("appLanguage") private var appLanguageRaw: String = IOSAppLanguage.system.rawValue
     @AppStorage("backgroundTheme") private var backgroundThemeRaw: String = IOSBackgroundTheme.frost.rawValue
@@ -42,6 +43,12 @@ struct IOSContentView: View {
     enum ActiveImporter {
         case pdf
         case folder
+    }
+
+    enum PhoneTab: Hashable {
+        case home
+        case preview
+        case settings
     }
 
     enum CriticalExportAction: String, Identifiable {
@@ -80,6 +87,10 @@ struct IOSContentView: View {
             return all
         }
         return Array(all.prefix(10))
+    }
+
+    private var phonePreviewModes: [DetailMode] {
+        [.original, .cleaned]
     }
 
     private var startButtonTitle: String {
@@ -131,16 +142,11 @@ struct IOSContentView: View {
     var body: some View {
         ZStack {
             IOSGlassBackground(theme: backgroundTheme)
-            NavigationSplitView(columnVisibility: $columnVisibility) {
-                sidebar
-                    .toolbar(.hidden, for: .navigationBar)
-            } detail: {
-                detail
-                    .toolbar(.hidden, for: .navigationBar)
+            if isPad {
+                ipadLayout
+            } else {
+                phoneLayout
             }
-            .navigationSplitViewStyle(.balanced)
-            .tint(backgroundTheme.accentColor)
-            .toolbar(.hidden, for: .navigationBar)
         }
         .fileImporter(
             isPresented: $showFileImporter,
@@ -238,6 +244,224 @@ struct IOSContentView: View {
         }
         .onChange(of: preferBatchMode) { _, _ in
             applySettingsToModeIfNeeded()
+        }
+    }
+
+    private var ipadLayout: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            sidebar
+                .toolbar(.hidden, for: .navigationBar)
+        } detail: {
+            detail
+                .toolbar(.hidden, for: .navigationBar)
+        }
+        .navigationSplitViewStyle(.balanced)
+        .tint(backgroundTheme.accentColor)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var phoneLayout: some View {
+        TabView(selection: $phoneTab) {
+            phoneHomeTab
+                .tag(PhoneTab.home)
+                .tabItem {
+                    Label(localizer.t(.files), systemImage: "house")
+                }
+
+            phonePreviewTab
+                .tag(PhoneTab.preview)
+                .tabItem {
+                    Label(localizer.t(.preview), systemImage: "doc.text.image")
+                }
+
+            phoneSettingsTab
+                .tag(PhoneTab.settings)
+                .tabItem {
+                    Label(localizer.t(.settings), systemImage: "gearshape")
+                }
+        }
+        .tint(backgroundTheme.accentColor)
+    }
+
+    private var phoneHomeTab: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    phonePrimaryActions
+                    filesSection
+                    exportSection
+                    if !model.isBatchMode {
+                        pageRangeSection
+                    }
+                    annotationTypeSection
+                    statusSection
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.hidden)
+            .navigationTitle(localizer.t(.files))
+        }
+    }
+
+    private var phonePrimaryActions: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Button(fileButtonTitle) {
+                    presentPDFPicker()
+                }
+                .buttonStyle(.borderedProminent)
+                .fixedSize(horizontal: true, vertical: false)
+
+                Button(localizer.t(.clear), role: .destructive) {
+                    model.clearInputs()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(model.isRunning || (model.inputURL == nil && model.batchInputURLs.isEmpty))
+
+                Button(startButtonTitle) {
+                    model.process()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!model.canProcess)
+                .fixedSize(horizontal: true, vertical: false)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(model.inputURL?.lastPathComponent ?? localizer.t(.selectFileHint))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .modifier(SidebarCardStyle())
+    }
+
+    private var phonePreviewTab: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(model.isBatchMode ? localizer.t(.previewBatch) : localizer.t(.preview))
+                        .font(.headline)
+                    Text(detailSubtitle)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                if model.isBatchMode {
+                    batchNavigator
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(.thinMaterial)
+                        )
+                }
+
+                Picker(localizer.t(.preview), selection: $detailMode) {
+                    ForEach(phonePreviewModes) { mode in
+                        Text(title(for: mode))
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Group {
+                    switch detailMode {
+                    case .comparison, .original:
+                        previewCard(title: localizer.t(.original), document: model.originalPreview)
+                    case .cleaned:
+                        previewCard(title: localizer.t(.cleaned), document: model.cleanedPreview)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .navigationTitle(localizer.t(.preview))
+            .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                if detailMode == .comparison {
+                    detailMode = .original
+                }
+            }
+        }
+    }
+
+    private var phoneSettingsTab: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    phoneLanguageMenu
+                    phoneBackgroundMenu
+                } header: {
+                    Text(localizer.t(.settings))
+                }
+
+                Section {
+                    Toggle(localizer.t(.advancedOptions), isOn: $enableAdvancedOptions)
+                        .toggleStyle(.switch)
+
+                    Toggle(localizer.t(.preferBatch), isOn: $preferBatchMode)
+                        .toggleStyle(.switch)
+                        .disabled(!enableAdvancedOptions)
+
+                    if enableAdvancedOptions {
+                        Picker(localizer.t(.mode), selection: $model.processingMode) {
+                            Text(localizer.t(.single)).tag(IOSProcessingMode.single)
+                            Text(localizer.t(.batch)).tag(IOSProcessingMode.batch)
+                        }
+                        .pickerStyle(.segmented)
+
+                        Text(model.isBatchMode ? localizer.t(.batchOnlyAllPages) : localizer.t(.singleSupportsPageRange))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text(localizer.t(.mode))
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .navigationTitle(localizer.t(.settings))
+        }
+    }
+
+    private var phoneLanguageMenu: some View {
+        Menu {
+            ForEach(IOSAppLanguage.allCases) { language in
+                Button(localizer.languageName(language)) {
+                    appLanguageRaw = language.rawValue
+                }
+            }
+        } label: {
+            HStack {
+                Text(localizer.t(.language))
+                Spacer(minLength: 8)
+                Text(localizer.languageName(appLanguage))
+                    .foregroundStyle(.secondary)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private var phoneBackgroundMenu: some View {
+        Menu {
+            ForEach(IOSBackgroundTheme.allCases) { theme in
+                Button(localizer.themeName(theme)) {
+                    backgroundThemeRaw = theme.rawValue
+                }
+            }
+        } label: {
+            HStack {
+                Text(localizer.t(.background))
+                Spacer(minLength: 8)
+                Text(localizer.themeName(backgroundTheme))
+                    .foregroundStyle(.secondary)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
         }
     }
 
