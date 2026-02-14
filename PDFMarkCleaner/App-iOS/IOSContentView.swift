@@ -772,15 +772,15 @@ struct IOSContentView: View {
                                 presentFolderPicker()
                             }
                             .buttonStyle(.borderedProminent)
-                            .frame(maxWidth: .infinity)
                             .disabled(!model.canSaveAsBatch)
 
                             Button(localizer.t(.replaceBatch), role: .destructive) {
                                 pendingCriticalAction = .replaceBatch
                             }
                             .buttonStyle(.bordered)
-                            .frame(maxWidth: .infinity)
                             .disabled(!model.canReplaceOriginal)
+
+                            Spacer(minLength: 0)
                         }
 
                         HStack(spacing: 8) {
@@ -788,15 +788,15 @@ struct IOSContentView: View {
                                 prepareMarkReportExport()
                             }
                             .buttonStyle(.bordered)
-                            .frame(maxWidth: .infinity)
                             .disabled(!canExportMark)
 
                             Button(localizer.t(.deleteBatch), role: .destructive) {
                                 pendingCriticalAction = .deleteBatch
                             }
                             .buttonStyle(.bordered)
-                            .frame(maxWidth: .infinity)
                             .disabled(!model.canDeleteOriginal)
+
+                            Spacer(minLength: 0)
                         }
                     }
 
@@ -824,15 +824,15 @@ struct IOSContentView: View {
                                 prepareSingleSaveAs()
                             }
                             .buttonStyle(.borderedProminent)
-                            .frame(maxWidth: .infinity)
                             .disabled(!model.canSaveAsSingle)
 
                             Button(localizer.t(.replaceOriginal), role: .destructive) {
                                 pendingCriticalAction = .replaceSingle
                             }
                             .buttonStyle(.bordered)
-                            .frame(maxWidth: .infinity)
                             .disabled(!model.canReplaceOriginal)
+
+                            Spacer(minLength: 0)
                         }
 
                         HStack(spacing: 8) {
@@ -840,15 +840,15 @@ struct IOSContentView: View {
                                 prepareMarkReportExport()
                             }
                             .buttonStyle(.bordered)
-                            .frame(maxWidth: .infinity)
                             .disabled(!canExportMark)
 
                             Button(localizer.t(.deleteOriginal), role: .destructive) {
                                 pendingCriticalAction = .deleteSingle
                             }
                             .buttonStyle(.bordered)
-                            .frame(maxWidth: .infinity)
                             .disabled(!model.canDeleteOriginal)
+
+                            Spacer(minLength: 0)
                         }
                     }
 
@@ -857,10 +857,8 @@ struct IOSContentView: View {
                         .lineLimit(2)
                     ShareLink(item: output) {
                         Label(localizer.t(.export), systemImage: "square.and.arrow.up")
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.bordered)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     VStack(spacing: 8) {
                         HStack(spacing: 8) {
@@ -868,13 +866,13 @@ struct IOSContentView: View {
                                 prepareSingleSaveAs()
                             }
                             .buttonStyle(.borderedProminent)
-                            .frame(maxWidth: .infinity)
                             .disabled(true)
 
                             Button(localizer.t(.replaceOriginal), role: .destructive) {}
                                 .buttonStyle(.bordered)
-                                .frame(maxWidth: .infinity)
                                 .disabled(true)
+
+                            Spacer(minLength: 0)
                         }
 
                         HStack(spacing: 8) {
@@ -882,15 +880,15 @@ struct IOSContentView: View {
                                 prepareMarkReportExport()
                             }
                             .buttonStyle(.bordered)
-                            .frame(maxWidth: .infinity)
                             .disabled(!canExportMark)
 
                             Button(localizer.t(.deleteOriginal), role: .destructive) {
                                 pendingCriticalAction = .deleteSingle
                             }
                             .buttonStyle(.bordered)
-                            .frame(maxWidth: .infinity)
                             .disabled(!model.canDeleteOriginal)
+
+                            Spacer(minLength: 0)
                         }
                     }
 
