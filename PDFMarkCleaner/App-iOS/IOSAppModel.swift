@@ -1,6 +1,7 @@
 import Foundation
 import PDFKit
 import Combine
+import UniformTypeIdentifiers
 import PDFMarkCore
 
 enum IOSProcessingMode: String, CaseIterable, Identifiable {
@@ -20,16 +21,24 @@ enum IOSRemovalScope: String, CaseIterable, Identifiable {
 @MainActor
 final class IOSAppModel: ObservableObject, @unchecked Sendable {
     @Published var processingMode: IOSProcessingMode = .single {
-        didSet { handleModeChanged() }
+        didSet {
+            guard processingMode != oldValue else { return }
+            let modeSnapshot = processingMode
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.processingMode == modeSnapshot else { return }
+                self.handleModeChanged(for: modeSnapshot)
+            }
+        }
     }
     @Published var removalScope: IOSRemovalScope = .all {
         didSet {
-            if isBatchMode && removalScope != .all {
-                removalScope = .all
-                return
-            }
-            if removalScope == .all {
-                clearSelectedPages()
+            guard removalScope != oldValue else { return }
+            let scopeSnapshot = removalScope
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.removalScope == scopeSnapshot else { return }
+                self.handleRemovalScopeChanged(scopeSnapshot)
             }
         }
     }
@@ -48,8 +57,14 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
     @Published var cleanedPreview: PDFDocument?
     @Published var pageCount: Int = 0
     @Published var errorMessage: String?
+    @Published var noMarksFileName: String?
+
+    private nonisolated static let minimumProgressDisplayDuration: TimeInterval = 0.45
 
     private var outputByInputPath: [String: URL] = [:]
+    private var scopedURLsByPath: [String: URL] = [:]
+    private var previewLocalCopyByInputPath: [String: URL] = [:]
+    private var noMarksAlertedInputPaths = Set<String>()
 
     var isBatchMode: Bool {
         processingMode == .batch
@@ -106,19 +121,30 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
     }
 
     func handlePickedFiles(_ urls: [URL]) {
-        let pdfURLs = normalizedPDFURLs(from: urls)
-        guard !pdfURLs.isEmpty else {
+        let normalizedURLs = urls.filter { $0.isFileURL }
+
+        for url in normalizedURLs {
+            retainSecurityScope(for: url)
+        }
+
+        let pickedFiles = normalizedPickedFiles(from: normalizedURLs)
+        let acceptedPaths = Set(pickedFiles.map { $0.standardizedFileURL.path })
+        for url in normalizedURLs where !acceptedPaths.contains(url.standardizedFileURL.path) {
+            releaseSecurityScope(for: url)
+        }
+
+        guard !pickedFiles.isEmpty else {
             status = "请选择 PDF 文件。"
             return
         }
 
-        if processingMode == .batch || pdfURLs.count > 1 {
+        if processingMode == .batch || pickedFiles.count > 1 {
             processingMode = .batch
-            appendBatchInputs(pdfURLs)
+            appendBatchInputs(pickedFiles)
             return
         }
 
-        openSingle(pdfURLs[0])
+        openSingle(pickedFiles[0])
     }
 
     func toggleType(_ kind: AnnotationKind, enabled: Bool) {
@@ -127,20 +153,24 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         } else {
             selectedTypes.remove(kind)
         }
+        refreshEstimatedCleanedPreview()
     }
 
     func selectAllTypes() {
         selectedTypes = Set(AnnotationKind.allCases)
+        refreshEstimatedCleanedPreview()
     }
 
     func clearAllTypes() {
         selectedTypes.removeAll()
+        refreshEstimatedCleanedPreview()
     }
 
     func switchToBatchIndex(_ index: Int) {
         guard batchInputURLs.indices.contains(index) else { return }
         batchIndex = index
         inputURL = batchInputURLs[index]
+        noMarksFileName = nil
         refreshCurrentDocumentState()
         status = "批处理文件：\(index + 1)/\(batchInputURLs.count)"
     }
@@ -150,6 +180,8 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         guard batchInputURLs.indices.contains(index) else { return }
 
         let removed = batchInputURLs.remove(at: index)
+        releaseSecurityScope(for: removed)
+        removePreviewLocalCopy(forPath: removed.standardizedFileURL.path)
         outputByInputPath.removeValue(forKey: removed.standardizedFileURL.path)
         batchOutputURLs.removeAll { $0.lastPathComponent == Self.outputFileName(for: removed) }
 
@@ -165,6 +197,9 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
     }
 
     func clearInputs() {
+        releaseAllSecurityScopes()
+        clearPreviewLocalCopies()
+        isRunning = false
         inputURL = nil
         outputURL = nil
         batchInputURLs = []
@@ -177,6 +212,8 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         cleanedPreview = nil
         progress = 0
         outputByInputPath.removeAll()
+        noMarksFileName = nil
+        noMarksAlertedInputPaths.removeAll()
         status = "请选择 PDF 文件。"
     }
 
@@ -185,11 +222,13 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         selectedPages = Set(1...pageCount)
         pageRangeInput = "1-\(pageCount)"
         status = "已选择全部页面：\(pageCount) 页。"
+        refreshEstimatedCleanedPreview()
     }
 
     func clearSelectedPages() {
         selectedPages = []
         pageRangeInput = ""
+        refreshEstimatedCleanedPreview()
     }
 
     func applyPageRangeInput() {
@@ -257,6 +296,7 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         } else {
             status = "已选择 \(result.count) 页，忽略 \(invalidCount) 个无效片段。"
         }
+        refreshEstimatedCleanedPreview()
     }
 
     func process() {
@@ -285,7 +325,7 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
     }
 
     func markSingleSaveAsCompleted(destination: URL) {
-        status = "已另存：\(destination.lastPathComponent)"
+        clearAfterAction(message: "已另存：\(destination.lastPathComponent)")
     }
 
     func saveBatchOutputs(to directoryURL: URL) {
@@ -303,7 +343,7 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         isRunning = true
         progress = 0
         errorMessage = nil
-        status = "正在批量另存..."
+        status = Self.progressStatus(prefix: "正在批量另存", progress: 0)
 
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             var copied = 0
@@ -328,6 +368,10 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
                 let overall = Double(index + 1) / Double(outputs.count)
                 Task { @MainActor in
                     self.progress = overall
+                    self.status = Self.progressStatus(
+                        prefix: "正在批量另存 \(index + 1)/\(outputs.count)",
+                        progress: overall
+                    )
                 }
             }
 
@@ -337,9 +381,9 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
                 self.isRunning = false
                 self.progress = 1
                 if finalFailed == 0 {
-                    self.status = "批量另存完成：\(finalCopied) 个文件。"
+                    self.clearAfterAction(message: "批量另存完成：\(finalCopied) 个文件。")
                 } else {
-                    self.status = "批量另存完成：成功 \(finalCopied) 个，失败 \(finalFailed) 个。"
+                    self.clearAfterAction(message: "批量另存完成：成功 \(finalCopied) 个，失败 \(finalFailed) 个。")
                 }
             }
         }
@@ -374,10 +418,11 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
 
         let types = selectedTypes
         let pages = removalScope == .selected ? selectedPages : nil
+        let processStart = Date()
         isRunning = true
         progress = 0
         errorMessage = nil
-        status = "正在清理注释..."
+        status = Self.progressStatus(prefix: "正在清理注释", progress: 0)
 
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             do {
@@ -394,12 +439,14 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
                     progress: { p in
                         Task { @MainActor in
                             self.progress = p
+                            self.status = Self.progressStatus(prefix: "正在清理注释", progress: p)
                         }
                     }
                 )
 
-                let cleaned = PDFDocument(url: output)
-                Task { @MainActor in
+                let cleaned = (try? Self.readData(from: output)).flatMap(PDFDocument.init(data:))
+                Self.runOnMainAfterMinimumProgressDuration(startedAt: processStart) { [weak self] in
+                    guard let self else { return }
                     self.outputURL = output
                     self.outputByInputPath[sourceURL.standardizedFileURL.path] = output
                     self.cleanedPreview = cleaned
@@ -408,7 +455,8 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
                     self.isRunning = false
                 }
             } catch {
-                Task { @MainActor in
+                Self.runOnMainAfterMinimumProgressDuration(startedAt: processStart) { [weak self] in
+                    guard let self else { return }
                     self.status = "处理失败：\(error.localizedDescription)"
                     self.errorMessage = error.localizedDescription
                     self.isRunning = false
@@ -429,10 +477,11 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
 
         let urls = batchInputURLs
         let types = selectedTypes
+        let processStart = Date()
         isRunning = true
         progress = 0
         errorMessage = nil
-        status = "正在批处理..."
+        status = Self.progressStatus(prefix: "正在批处理", progress: 0)
         batchOutputURLs = []
         outputByInputPath.removeAll()
 
@@ -457,6 +506,10 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
                             let overall = (Double(index) + p) / Double(urls.count)
                             Task { @MainActor in
                                 self.progress = overall
+                                self.status = Self.progressStatus(
+                                    prefix: "正在批处理 \(index + 1)/\(urls.count)",
+                                    progress: overall
+                                )
                             }
                         }
                     )
@@ -468,7 +521,8 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
                 }
 
                 let finalOutputs = outputs
-                Task { @MainActor in
+                Self.runOnMainAfterMinimumProgressDuration(startedAt: processStart) { [weak self] in
+                    guard let self else { return }
                     self.batchOutputURLs = finalOutputs
                     self.progress = 1
                     self.isRunning = false
@@ -476,7 +530,8 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
                     self.refreshCurrentDocumentState()
                 }
             } catch {
-                Task { @MainActor in
+                Self.runOnMainAfterMinimumProgressDuration(startedAt: processStart) { [weak self] in
+                    guard let self else { return }
                     self.isRunning = false
                     self.status = "批处理失败：\(error.localizedDescription)"
                     self.errorMessage = error.localizedDescription
@@ -495,7 +550,7 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         isRunning = true
         progress = 0
         errorMessage = nil
-        status = "正在替代原文件..."
+        status = Self.progressStatus(prefix: "正在替代原文件", progress: 0)
 
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             do {
@@ -503,8 +558,7 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
                 Task { @MainActor in
                     self.isRunning = false
                     self.progress = 1
-                    self.status = "已替代原文件：\(inputURL.lastPathComponent)"
-                    self.refreshCurrentDocumentState()
+                    self.clearAfterAction(message: "已替代原文件：\(inputURL.lastPathComponent)")
                 }
             } catch {
                 Task { @MainActor in
@@ -527,7 +581,7 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         isRunning = true
         progress = 0
         errorMessage = nil
-        status = "正在批量替代原文件..."
+        status = Self.progressStatus(prefix: "正在批量替代原文件", progress: 0)
 
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             var replaced = 0
@@ -544,6 +598,10 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
                 let overall = Double(index + 1) / Double(pairs.count)
                 Task { @MainActor in
                     self.progress = overall
+                    self.status = Self.progressStatus(
+                        prefix: "正在批量替代原文件 \(index + 1)/\(pairs.count)",
+                        progress: overall
+                    )
                 }
             }
 
@@ -553,11 +611,10 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
                 self.isRunning = false
                 self.progress = 1
                 if finalFailed == 0 {
-                    self.status = "批量替代完成：\(finalReplaced) 个文件。"
+                    self.clearAfterAction(message: "批量替代完成：\(finalReplaced) 个文件。")
                 } else {
-                    self.status = "批量替代完成：成功 \(finalReplaced) 个，失败 \(finalFailed) 个。"
+                    self.clearAfterAction(message: "批量替代完成：成功 \(finalReplaced) 个，失败 \(finalFailed) 个。")
                 }
-                self.refreshCurrentDocumentState()
             }
         }
     }
@@ -572,15 +629,15 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         isRunning = true
         progress = 0
         errorMessage = nil
-        status = "正在删除原文件..."
+        status = Self.progressStatus(prefix: "正在删除原文件", progress: 0)
 
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             do {
                 try Self.removeFile(inputURL)
                 Task { @MainActor in
                     self.isRunning = false
-                    self.clearInputs()
-                    self.status = "已删除原文件：\(inputURL.lastPathComponent)"
+                    self.progress = 1
+                    self.clearAfterAction(message: "已删除原文件：\(inputURL.lastPathComponent)")
                 }
             } catch {
                 Task { @MainActor in
@@ -603,18 +660,16 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         isRunning = true
         progress = 0
         errorMessage = nil
-        status = "正在批量删除原文件..."
+        status = Self.progressStatus(prefix: "正在批量删除原文件", progress: 0)
 
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             var deleted = 0
             var failed = 0
-            var deletedPaths = Set<String>()
 
             for (index, url) in urls.enumerated() {
                 do {
                     try Self.removeFile(url)
                     deleted += 1
-                    deletedPaths.insert(url.standardizedFileURL.path)
                 } catch {
                     failed += 1
                 }
@@ -622,49 +677,71 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
                 let overall = Double(index + 1) / Double(urls.count)
                 Task { @MainActor in
                     self.progress = overall
+                    self.status = Self.progressStatus(
+                        prefix: "正在批量删除原文件 \(index + 1)/\(urls.count)",
+                        progress: overall
+                    )
                 }
             }
 
             let finalDeleted = deleted
             let finalFailed = failed
-            let finalDeletedPaths = deletedPaths
             Task { @MainActor in
                 self.isRunning = false
                 self.progress = 1
 
-                if !finalDeletedPaths.isEmpty {
-                    self.batchInputURLs.removeAll { finalDeletedPaths.contains($0.standardizedFileURL.path) }
-                    for path in finalDeletedPaths {
-                        self.outputByInputPath.removeValue(forKey: path)
-                    }
-                }
-
-                if self.batchInputURLs.isEmpty {
-                    self.clearInputs()
-                    self.processingMode = .batch
-                } else {
-                    let nextIndex = min(self.batchIndex, self.batchInputURLs.count - 1)
-                    self.switchToBatchIndex(nextIndex)
-                }
-
                 if finalFailed == 0 {
-                    self.status = "批量删除完成：\(finalDeleted) 个文件。"
+                    self.clearAfterAction(message: "批量删除完成：\(finalDeleted) 个文件。")
                 } else {
-                    self.status = "批量删除完成：成功 \(finalDeleted) 个，失败 \(finalFailed) 个。"
+                    self.clearAfterAction(message: "批量删除完成：成功 \(finalDeleted) 个，失败 \(finalFailed) 个。")
                 }
             }
         }
     }
 
-    // 中文说明：iOS 文件选择器返回的 URL 可能是安全域 URL，需要在访问期间显式开启权限。
-    private func readPDFDocument(from url: URL) -> PDFDocument? {
-        let hasAccess = url.startAccessingSecurityScopedResource()
-        defer {
-            if hasAccess {
-                url.stopAccessingSecurityScopedResource()
+    private nonisolated static func progressStatus(prefix: String, progress: Double) -> String {
+        let clamped = max(0, min(1, progress))
+        let percent = Int((clamped * 100).rounded())
+        return "\(prefix)（\(percent)%）"
+    }
+
+    private nonisolated static func runOnMainAfterMinimumProgressDuration(
+        startedAt: Date,
+        _ action: @escaping @MainActor @Sendable () -> Void
+    ) {
+        let elapsed = Date().timeIntervalSince(startedAt)
+        let remaining = max(0, minimumProgressDisplayDuration - elapsed)
+        _ = Task {
+            if remaining > 0 {
+                let nanoseconds = UInt64((remaining * 1_000_000_000).rounded(.up))
+                try? await Task.sleep(nanoseconds: nanoseconds)
+            }
+            await MainActor.run {
+                action()
             }
         }
-        return PDFDocument(url: url)
+    }
+
+    private func clearAfterAction(message: String) {
+        clearInputs()
+        status = "文件已完成处理。\(message)"
+    }
+
+    // 中文说明：统一使用 Data 构建预览，避免 iPad 文件提供器下 URL 懒加载失效。
+    private func readPDFDocument(from url: URL) -> PDFDocument? {
+        if let data = try? Self.readData(from: url),
+           let document = PDFDocument(data: data) {
+            return document
+        }
+        if let localCopy = ensurePreviewLocalCopy(for: url) {
+            if let document = PDFDocument(url: localCopy) {
+                return document
+            }
+            if let copiedData = try? Data(contentsOf: localCopy) {
+                return PDFDocument(data: copiedData)
+            }
+        }
+        return nil
     }
 
     private func processedBatchPairs() -> [(input: URL, output: URL)] {
@@ -682,7 +759,81 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
                 url.stopAccessingSecurityScopedResource()
             }
         }
+        if let coordinated = try coordinatedReadData(from: url) {
+            return coordinated
+        }
         return try Data(contentsOf: url)
+    }
+
+    private nonisolated static func coordinatedReadData(from url: URL) throws -> Data? {
+        var coordinatorError: NSError?
+        var readError: Error?
+        var result: Data?
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+
+        coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinatorError) { coordinatedURL in
+            do {
+                if let mapped = try? Data(contentsOf: coordinatedURL, options: [.mappedIfSafe]) {
+                    result = mapped
+                } else {
+                    result = try Data(contentsOf: coordinatedURL)
+                }
+            } catch {
+                readError = error
+            }
+        }
+
+        if let readError {
+            throw readError
+        }
+        if coordinatorError != nil {
+            return nil
+        }
+        return result
+    }
+
+    private nonisolated static func makePreviewLocalCopy(of sourceURL: URL) throws -> URL {
+        let fileManager = FileManager.default
+        let previewRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("pdf-preview-cache", isDirectory: true)
+        try fileManager.createDirectory(at: previewRoot, withIntermediateDirectories: true)
+
+        let pathExtension = sourceURL.pathExtension.isEmpty ? "pdf" : sourceURL.pathExtension
+        let temporaryURL = previewRoot
+            .appendingPathComponent("pdf-preview-\(UUID().uuidString)")
+            .appendingPathExtension(pathExtension)
+
+        let hasAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if hasAccess {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        var coordinatorError: NSError?
+        var copyError: Error?
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(readingItemAt: sourceURL, options: .withoutChanges, error: &coordinatorError) { coordinatedURL in
+            do {
+                if fileManager.fileExists(atPath: temporaryURL.path) {
+                    try fileManager.removeItem(at: temporaryURL)
+                }
+                try fileManager.copyItem(at: coordinatedURL, to: temporaryURL)
+            } catch {
+                copyError = error
+            }
+        }
+
+        if let copyError {
+            throw copyError
+        }
+        if let coordinatorError {
+            throw coordinatorError
+        }
+        if !fileManager.fileExists(atPath: temporaryURL.path) {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return temporaryURL
     }
 
     private nonisolated static func copyOutput(_ source: URL, toDirectory directory: URL, reservedPaths: inout Set<String>) throws {
@@ -799,8 +950,8 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private func handleModeChanged() {
-        if isBatchMode {
+    private func handleModeChanged(for mode: IOSProcessingMode) {
+        if mode == .batch {
             removalScope = .all
             clearSelectedPages()
             if batchInputURLs.isEmpty, let current = inputURL {
@@ -813,20 +964,50 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         }
     }
 
+    private func handleRemovalScopeChanged(_ scope: IOSRemovalScope) {
+        if isBatchMode && scope != .all {
+            if removalScope != .all {
+                removalScope = .all
+            }
+            return
+        }
+
+        if scope == .all {
+            clearSelectedPages()
+            return
+        }
+
+        refreshEstimatedCleanedPreview()
+    }
+
     private func openSingle(_ url: URL) {
+        noMarksFileName = nil
+        if let previous = inputURL,
+           previous.standardizedFileURL.path != url.standardizedFileURL.path {
+            let previousPath = previous.standardizedFileURL.path
+            let stillTrackedInBatch = batchInputURLs.contains { $0.standardizedFileURL.path == previousPath }
+            if !stillTrackedInBatch {
+                releaseSecurityScope(forPath: previousPath)
+                removePreviewLocalCopy(forPath: previousPath)
+            }
+        }
+
+        retainSecurityScope(for: url)
         inputURL = url
         outputURL = outputByInputPath[url.standardizedFileURL.path]
         originalPreview = readPDFDocument(from: url)
-        if let outputURL {
-            cleanedPreview = PDFDocument(url: outputURL)
-        } else {
-            cleanedPreview = nil
-        }
+        showNoMarksNoticeIfNeeded(for: url, document: originalPreview)
         pageCount = originalPreview?.pageCount ?? 0
         if removalScope == .selected {
             clearSelectedPages()
+        } else {
+            refreshEstimatedCleanedPreview()
         }
-        status = "已选择：\(url.lastPathComponent)"
+        if originalPreview == nil {
+            status = "已选择：\(url.lastPathComponent)，但预览读取失败。"
+        } else {
+            status = "已选择：\(url.lastPathComponent)"
+        }
         progress = 0
     }
 
@@ -860,26 +1041,132 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
             return
         }
         originalPreview = readPDFDocument(from: inputURL)
+        showNoMarksNoticeIfNeeded(for: inputURL, document: originalPreview)
         outputURL = outputByInputPath[inputURL.standardizedFileURL.path]
-        if let outputURL {
-            cleanedPreview = PDFDocument(url: outputURL)
-        } else {
-            cleanedPreview = nil
-        }
         pageCount = originalPreview?.pageCount ?? 0
+        refreshEstimatedCleanedPreview()
     }
 
-    private func normalizedPDFURLs(from urls: [URL]) -> [URL] {
+    private func refreshEstimatedCleanedPreview() {
+        guard let sourceURL = inputURL else {
+            cleanedPreview = nil
+            return
+        }
+        cleanedPreview = makeEstimatedCleanedPreview(from: sourceURL)
+    }
+
+    // 中文说明：在不写出文件的情况下生成“预计清理后”预览，供对比视图即时反馈设置变化。
+    private func makeEstimatedCleanedPreview(from sourceURL: URL) -> PDFDocument? {
+        guard let document = readPDFDocument(from: sourceURL) else {
+            return nil
+        }
+
+        guard !selectedTypes.isEmpty else {
+            return document
+        }
+
+        let pagesToProcess: Set<Int>?
+        if isBatchMode || removalScope == .all {
+            pagesToProcess = nil
+        } else {
+            pagesToProcess = selectedPages
+        }
+
+        for pageIndex in 0..<document.pageCount {
+            guard let page = document.page(at: pageIndex) else { continue }
+            let pageNumber = pageIndex + 1
+            if let pagesToProcess, !pagesToProcess.contains(pageNumber) {
+                continue
+            }
+
+            for annotation in page.annotations {
+                let shouldHide = PDFAnnotationStripper.shouldRemove(annotation, selectedTypes: selectedTypes)
+                annotation.shouldDisplay = !shouldHide
+            }
+        }
+
+        return document
+    }
+
+    private func normalizedPickedFiles(from urls: [URL]) -> [URL] {
         var seen = Set<String>()
         var result: [URL] = []
         for url in urls {
-            let fileURL = url.standardizedFileURL
-            guard fileURL.isFileURL else { continue }
-            guard fileURL.pathExtension.lowercased() == "pdf" else { continue }
-            if seen.insert(fileURL.path).inserted {
-                result.append(fileURL)
+            guard url.isFileURL else { continue }
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+            if values?.isDirectory == true {
+                continue
+            }
+            let key = url.standardizedFileURL.path
+            if seen.insert(key).inserted {
+                result.append(url)
             }
         }
         return result
+    }
+
+    private func retainSecurityScope(for url: URL) {
+        let key = url.standardizedFileURL.path
+        guard scopedURLsByPath[key] == nil else { return }
+        guard url.startAccessingSecurityScopedResource() else { return }
+        scopedURLsByPath[key] = url
+    }
+
+    private func releaseSecurityScope(for url: URL) {
+        releaseSecurityScope(forPath: url.standardizedFileURL.path)
+    }
+
+    private func releaseSecurityScope(forPath path: String) {
+        guard let scopedURL = scopedURLsByPath.removeValue(forKey: path) else { return }
+        scopedURL.stopAccessingSecurityScopedResource()
+    }
+
+    private func releaseAllSecurityScopes() {
+        for (_, scopedURL) in scopedURLsByPath {
+            scopedURL.stopAccessingSecurityScopedResource()
+        }
+        scopedURLsByPath.removeAll()
+    }
+
+    private func ensurePreviewLocalCopy(for sourceURL: URL) -> URL? {
+        let key = sourceURL.standardizedFileURL.path
+        if let cached = previewLocalCopyByInputPath[key],
+           FileManager.default.fileExists(atPath: cached.path) {
+            return cached
+        }
+        guard let copy = try? Self.makePreviewLocalCopy(of: sourceURL) else { return nil }
+        previewLocalCopyByInputPath[key] = copy
+        return copy
+    }
+
+    private func removePreviewLocalCopy(forPath path: String) {
+        guard let cached = previewLocalCopyByInputPath.removeValue(forKey: path) else { return }
+        try? FileManager.default.removeItem(at: cached)
+    }
+
+    private func clearPreviewLocalCopies() {
+        for (_, cached) in previewLocalCopyByInputPath {
+            try? FileManager.default.removeItem(at: cached)
+        }
+        previewLocalCopyByInputPath.removeAll()
+    }
+
+    private func showNoMarksNoticeIfNeeded(for url: URL, document: PDFDocument?) {
+        guard let document else { return }
+        guard !hasAnnotations(in: document) else { return }
+
+        let normalizedPath = url.standardizedFileURL.path
+        guard noMarksAlertedInputPaths.insert(normalizedPath).inserted else { return }
+        noMarksFileName = url.lastPathComponent
+    }
+
+    private func hasAnnotations(in document: PDFDocument) -> Bool {
+        guard document.pageCount > 0 else { return false }
+        for pageIndex in 0..<document.pageCount {
+            if let page = document.page(at: pageIndex), !page.annotations.isEmpty {
+                return true
+            }
+        }
+        return false
     }
 }

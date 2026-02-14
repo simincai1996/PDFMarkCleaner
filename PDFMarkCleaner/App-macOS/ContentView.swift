@@ -327,7 +327,14 @@ private struct Sidebar: View {
 
                             LazyVGrid(columns: typeColumns, spacing: 6) {
                                 ForEach(AnnotationKind.allCases) { kind in
-                                    Toggle(kind.title, isOn: typeBinding(for: kind))
+                                    Toggle(isOn: typeBinding(for: kind)) {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: kind.symbolName)
+                                                .foregroundStyle(.secondary)
+                                                .frame(width: 14)
+                                            Text(kind.title)
+                                        }
+                                    }
                                         .toggleStyle(.checkbox)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
@@ -779,7 +786,12 @@ private struct CountsBlock: View {
             } else {
                 ForEach(rows, id: \.0) { kind, value in
                     HStack {
-                        Text(kind.title)
+                        HStack(spacing: 6) {
+                            Image(systemName: kind.symbolName)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 12)
+                            Text(kind.title)
+                        }
                         Spacer()
                         Text("\(value)")
                             .foregroundStyle(.secondary)

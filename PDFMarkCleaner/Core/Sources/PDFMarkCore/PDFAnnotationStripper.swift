@@ -49,6 +49,31 @@ public enum AnnotationKind: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// 系统图标名称（SF Symbols），供 UI 渲染类型图标。
+    public var symbolName: String {
+        switch self {
+        case .ink: return "pencil.tip"
+        case .highlight: return "highlighter"
+        case .underline: return "underline"
+        case .strikeOut: return "strikethrough"
+        case .text: return "text.bubble"
+        case .freeText: return "textformat"
+        case .stamp: return "checkmark.seal"
+        case .square: return "square"
+        case .circle: return "circle"
+        case .line: return "line.diagonal"
+        case .link: return "link"
+        case .widget: return "slider.horizontal.3"
+        case .fileAttachment: return "paperclip"
+        case .popup: return "bubble.left"
+        case .caret: return "chevron.up"
+        case .squiggly: return "scribble"
+        case .polygon: return "hexagon"
+        case .polyLine: return "waveform.path"
+        case .sound: return "speaker.wave.2"
+        }
+    }
+
     var tokens: [String] {
         switch self {
         case .ink: return ["ink"]
@@ -106,11 +131,52 @@ public struct PDFAnnotationStripper {
             .lowercased()
     }
 
+    /// 兼容不同来源的注释类型字段：
+    /// - 常规注释通常在 `type`
+    /// - 某些签名注释会在 `widgetFieldType` 中使用 /Sig
+    private static func normalizedTypeCandidates(for annot: PDFAnnotation) -> [String] {
+        var candidates: [String] = []
+
+        if let type = annot.type {
+            let normalized = normalize(type)
+            if !normalized.isEmpty {
+                candidates.append(normalized)
+            }
+        }
+
+        let widgetFieldType = annot.widgetFieldType.rawValue
+        if !widgetFieldType.isEmpty {
+            let normalized = normalize(widgetFieldType)
+            if !normalized.isEmpty {
+                candidates.append(normalized)
+                if normalized == "sig" {
+                    candidates.append("signature")
+                }
+            }
+        }
+
+        if candidates.contains("sig") || candidates.contains("signature") {
+            // 某些签名会落在不同注释类型，补齐常见别名避免漏删。
+            candidates.append("widget")
+            candidates.append("stamp")
+            candidates.append("ink")
+        }
+
+        var seen = Set<String>()
+        var unique: [String] = []
+        for candidate in candidates where seen.insert(candidate).inserted {
+            unique.append(candidate)
+        }
+        return unique
+    }
+
     public static func shouldRemove(_ annot: PDFAnnotation, selectedTypes: Set<AnnotationKind>) -> Bool {
         if selectedTypes.isEmpty { return false }
-        guard let type = annot.type else { return false }
-        let normalized = normalize(type)
-        return selectedTypes.contains { $0.matches(normalizedType: normalized) }
+        let candidates = normalizedTypeCandidates(for: annot)
+        guard !candidates.isEmpty else { return false }
+        return selectedTypes.contains { kind in
+            candidates.contains { kind.matches(normalizedType: $0) }
+        }
     }
 
     public static func removeAnnotations(in page: PDFPage, selectedTypes: Set<AnnotationKind>) {
@@ -120,9 +186,12 @@ public struct PDFAnnotationStripper {
     }
 
     public static func kind(for annot: PDFAnnotation) -> AnnotationKind? {
-        guard let type = annot.type else { return nil }
-        let normalized = normalize(type)
-        return AnnotationKind.allCases.first { $0.matches(normalizedType: normalized) }
+        for normalized in normalizedTypeCandidates(for: annot) {
+            if let kind = AnnotationKind.allCases.first(where: { $0.matches(normalizedType: normalized) }) {
+                return kind
+            }
+        }
+        return nil
     }
 
     /// 执行注释清理并写出新 PDF：

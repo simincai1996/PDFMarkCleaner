@@ -118,6 +118,8 @@ enum IOSLKey {
     case itemIndex
     case processFailed
     case pickFailed
+    case noMarksFound
+    case noMarksFoundInFile
     case advancedOffMultiFileHint
     case settings
     case selectFileHint
@@ -279,6 +281,8 @@ struct IOSLocalizer {
         case .itemIndex: return "Item %d"
         case .processFailed: return "Process Failed"
         case .pickFailed: return "Failed to select files."
+        case .noMarksFound: return "No marks found"
+        case .noMarksFoundInFile: return "No marks found in %@."
         case .advancedOffMultiFileHint: return "Advanced batch is off; only the first file was imported."
         case .settings: return "Settings"
         case .selectFileHint: return "Select PDF first"
@@ -340,6 +344,8 @@ struct IOSLocalizer {
         case .itemIndex: return "第 %d 个"
         case .processFailed: return "处理失败"
         case .pickFailed: return "文件选择失败。"
+        case .noMarksFound: return "未找到标记"
+        case .noMarksFoundInFile: return "在 %@ 中未找到标记。"
         case .advancedOffMultiFileHint: return "已关闭高级批处理，仅导入第一个文件。"
         case .settings: return "设置"
         case .selectFileHint: return "请先选择 PDF"
@@ -401,6 +407,8 @@ struct IOSLocalizer {
         case .itemIndex: return "第 %d 個"
         case .processFailed: return "處理失敗"
         case .pickFailed: return "檔案選擇失敗。"
+        case .noMarksFound: return "未找到標記"
+        case .noMarksFoundInFile: return "在 %@ 中未找到標記。"
         case .advancedOffMultiFileHint: return "已關閉進階批次，僅匯入第一個檔案。"
         case .settings: return "設定"
         case .selectFileHint: return "請先選擇 PDF"

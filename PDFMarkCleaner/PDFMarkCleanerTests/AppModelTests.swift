@@ -1,4 +1,6 @@
 import XCTest
+import PDFKit
+import PDFMarkCore
 @testable import PDFMarkCleaner
 
 @MainActor
@@ -86,6 +88,30 @@ final class AppModelTests: XCTestCase {
             existing.contains(path)
         }
         XCTAssertEqual(second.url.path, "/tmp/pdfmark-tests/output/report_cleaned_4.pdf")
+    }
+
+    func testSignatureWidgetCanBeRemovedWhenWidgetSelected() {
+        let annotation = PDFAnnotation(bounds: .zero, forType: .widget, withProperties: nil)
+        annotation.widgetFieldType = .signature
+
+        XCTAssertTrue(
+            PDFAnnotationStripper.shouldRemove(
+                annotation,
+                selectedTypes: Set([.widget])
+            )
+        )
+    }
+
+    func testSignatureWidgetCanBeRemovedWhenStampSelected() {
+        let annotation = PDFAnnotation(bounds: .zero, forType: .widget, withProperties: nil)
+        annotation.widgetFieldType = .signature
+
+        XCTAssertTrue(
+            PDFAnnotationStripper.shouldRemove(
+                annotation,
+                selectedTypes: Set([.stamp])
+            )
+        )
     }
 
     private func makeTempDirectory(name: String) throws -> URL {

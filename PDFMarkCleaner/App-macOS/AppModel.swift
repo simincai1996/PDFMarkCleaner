@@ -48,7 +48,13 @@ private struct FileState {
 final class AppModel: ObservableObject {
     @Published var processingMode: ProcessingMode = .single {
         didSet {
-            handleModeChanged()
+            guard processingMode != oldValue else { return }
+            let modeSnapshot = processingMode
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.processingMode == modeSnapshot else { return }
+                self.handleModeChanged(for: modeSnapshot)
+            }
         }
     }
     @Published var batchInputURLs: [URL] = []
@@ -111,10 +117,12 @@ final class AppModel: ObservableObject {
     private var cleanedProcessedPages = Set<Int>()
     private var isUpdatingSelection = false
     private var perPageTypeCounts: [Int: [AnnotationKind: Int]] = [:]
+    private nonisolated static let minimumProgressDisplayDuration: TimeInterval = 0.45
     private let minPreviewScale: CGFloat = 0.5
     private let maxPreviewScale: CGFloat = 3.0
     private let scanUpdateStride = 12
     private var fileStates: [URL: FileState] = [:]
+    private var noMarksAlertedInputPaths = Set<String>()
     var skipBackgroundWorkForTesting = false
     private var localizer: Localizer {
         let raw = UserDefaults.standard.string(forKey: "appLanguage") ?? AppLanguage.system.rawValue
@@ -333,7 +341,10 @@ final class AppModel: ObservableObject {
 
         if panel.runModal() == .OK, let url = panel.url {
             outputURL = url
-            runStrip(to: url)
+            runStrip(to: url) { [weak self] success in
+                guard success else { return }
+                self?.clearAfterAction(message: "Saved: \(url.lastPathComponent)")
+            }
         }
     }
 
@@ -432,11 +443,7 @@ final class AppModel: ObservableObject {
             do {
                 let fileManager = FileManager.default
                 _ = try fileManager.replaceItemAt(inputURL, withItemAt: tempURL, backupItemName: nil, options: [])
-                self.status = "Replaced: \(inputURL.lastPathComponent)"
-                self.updateFileSize(for: inputURL)
-                self.loadDocuments(url: inputURL)
-                self.scanMarkedPages()
-                self.markEstimateStale(clearValue: true)
+                self.clearAfterAction(message: "Replaced: \(inputURL.lastPathComponent)")
             } catch {
                 self.status = "Replace failed: \(error.localizedDescription)"
                 try? FileManager.default.removeItem(at: tempURL)
@@ -465,7 +472,7 @@ final class AppModel: ObservableObject {
         do {
             var trashed: NSURL?
             try FileManager.default.trashItem(at: inputURL, resultingItemURL: &trashed)
-            resetState(statusMessage: "Moved to Trash: \(inputURL.lastPathComponent)")
+            clearAfterAction(message: "Moved to Trash: \(inputURL.lastPathComponent)")
         } catch {
             status = "Delete failed: \(error.localizedDescription)"
         }
@@ -668,10 +675,11 @@ final class AppModel: ObservableObject {
         let typesSnapshot = selectedTypes
         var reservedOutputPaths = Set<String>()
         var renamedOutputCount = 0
+        let processStart = Date()
 
         progress = 0
         isRunning = true
-        status = "Processing batch..."
+        status = Self.progressStatus(prefix: "Processing batch", progress: 0)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
@@ -696,6 +704,10 @@ final class AppModel: ObservableObject {
                             let overall = (Double(index) + p) / Double(urls.count)
                             DispatchQueue.main.async {
                                 self.progress = overall
+                                self.status = Self.progressStatus(
+                                    prefix: "Processing batch \(index + 1)/\(urls.count)",
+                                    progress: overall
+                                )
                             }
                         }
                     )
@@ -719,6 +731,10 @@ final class AppModel: ObservableObject {
                 }
             }
 
+            let remaining = Self.remainingProgressDelay(startedAt: processStart)
+            if remaining > 0 {
+                Thread.sleep(forTimeInterval: remaining)
+            }
             DispatchQueue.main.async {
                 self.isRunning = false
                 if let error = lastError {
@@ -911,9 +927,9 @@ final class AppModel: ObservableObject {
         previewScale = clamped
     }
 
-    private func handleModeChanged() {
+    private func handleModeChanged(for mode: ProcessingMode) {
         saveCurrentState()
-        if isBatchMode {
+        if mode == .batch {
             removalScope = .all
             selectedPages = []
             if batchInputURLs.isEmpty, let current = inputURL {
@@ -1083,10 +1099,11 @@ final class AppModel: ObservableObject {
 
         let selectedSnapshot = selectedTypes
         let pagesSnapshot = removalScope == .selected ? selectedPages : nil
+        let processStart = Date()
 
         progress = 0
         isRunning = true
-        status = "Processing..."
+        status = Self.progressStatus(prefix: "Processing", progress: 0)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             do {
@@ -1098,12 +1115,18 @@ final class AppModel: ObservableObject {
                     progress: { p in
                         DispatchQueue.main.async {
                             self?.progress = p
+                            self?.status = Self.progressStatus(prefix: "Processing", progress: p)
                         }
                     }
                 )
 
+                let remaining = Self.remainingProgressDelay(startedAt: processStart)
+                if remaining > 0 {
+                    Thread.sleep(forTimeInterval: remaining)
+                }
                 DispatchQueue.main.async {
                     self?.isRunning = false
+                    self?.progress = 1
                     self?.status = "Done: \(output.lastPathComponent)"
                     if let size = self?.fileSize(for: output) {
                         self?.estimatedFileSizeBytes = size
@@ -1113,6 +1136,10 @@ final class AppModel: ObservableObject {
                     completion?(true)
                 }
             } catch {
+                let remaining = Self.remainingProgressDelay(startedAt: processStart)
+                if remaining > 0 {
+                    Thread.sleep(forTimeInterval: remaining)
+                }
                 DispatchQueue.main.async {
                     self?.isRunning = false
                     self?.status = "Failed: \(error.localizedDescription)"
@@ -1124,6 +1151,7 @@ final class AppModel: ObservableObject {
 
     private func scanMarkedPages() {
         guard let inputURL else { return }
+        let scannedURL = inputURL
         if skipBackgroundWorkForTesting {
             isScanning = false
             scanProgress = 0
@@ -1147,7 +1175,7 @@ final class AppModel: ObservableObject {
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
-            guard let doc = PDFDocument(url: inputURL) else {
+            guard let doc = PDFDocument(url: scannedURL) else {
                 DispatchQueue.main.async {
                     if self.scanToken == token {
                         self.isScanning = false
@@ -1160,6 +1188,7 @@ final class AppModel: ObservableObject {
             var pages: [Int] = []
             var perPage: [Int: [AnnotationKind: Int]] = [:]
             var totalCounts: [AnnotationKind: Int] = [:]
+            var hasAnyAnnotation = false
 
             if total == 0 {
                 DispatchQueue.main.async {
@@ -1180,8 +1209,17 @@ final class AppModel: ObservableObject {
                 if self.scanToken != token { return }
                 autoreleasepool {
                     if let page = doc.page(at: index) {
+                        let annotations = page.annotations
+                        if !annotations.isEmpty {
+                            hasAnyAnnotation = true
+                        }
+
                         var pageCounts: [AnnotationKind: Int] = [:]
-                        for annot in page.annotations {
+                        var hasSelected = false
+                        for annot in annotations {
+                            if PDFAnnotationStripper.shouldRemove(annot, selectedTypes: typesSnapshot) {
+                                hasSelected = true
+                            }
                             if let kind = PDFAnnotationStripper.kind(for: annot) {
                                 pageCounts[kind, default: 0] += 1
                                 totalCounts[kind, default: 0] += 1
@@ -1192,11 +1230,8 @@ final class AppModel: ObservableObject {
                             perPage[index + 1] = pageCounts
                         }
 
-                        if !typesSnapshot.isEmpty {
-                            let hasSelected = pageCounts.contains { typesSnapshot.contains($0.key) && $0.value > 0 }
-                            if hasSelected {
-                                pages.append(index + 1)
-                            }
+                        if hasSelected {
+                            pages.append(index + 1)
                         }
                     }
                 }
@@ -1229,6 +1264,9 @@ final class AppModel: ObservableObject {
 
                     self.updateCurrentPageCounts()
                     self.updateSelectedPagesCounts()
+                    if !hasAnyAnnotation {
+                        self.showNoMarksAlertIfNeeded(for: scannedURL)
+                    }
                 }
             }
         }
@@ -1406,6 +1444,34 @@ final class AppModel: ObservableObject {
         return max(1, min(number, pageCount))
     }
 
+    private nonisolated static func progressStatus(prefix: String, progress: Double) -> String {
+        let clamped = max(0, min(1, progress))
+        let percent = Int((clamped * 100).rounded())
+        return "\(prefix) (\(percent)%)"
+    }
+
+    private nonisolated static func remainingProgressDelay(startedAt: Date) -> TimeInterval {
+        let elapsed = Date().timeIntervalSince(startedAt)
+        return max(0, minimumProgressDisplayDuration - elapsed)
+    }
+
+    private func clearAfterAction(message: String) {
+        clearSelection()
+        status = "File processing completed. \(message)"
+    }
+
+    private func showNoMarksAlertIfNeeded(for url: URL) {
+        let normalizedPath = url.standardizedFileURL.path
+        guard noMarksAlertedInputPaths.insert(normalizedPath).inserted else { return }
+
+        let alert = NSAlert()
+        alert.messageText = localized(.noMarksFound)
+        alert.informativeText = "\(localized(.currentFile)): \(url.lastPathComponent)"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        _ = alert.runModal()
+    }
+
     private func confirm(title: String, message: String) -> Bool {
         let alert = NSAlert()
         alert.messageText = title
@@ -1446,6 +1512,7 @@ final class AppModel: ObservableObject {
         currentPageTypeCounts = [:]
         selectedPagesTypeCounts = [:]
         perPageTypeCounts = [:]
+        noMarksAlertedInputPaths.removeAll()
         status = statusMessage
     }
 }

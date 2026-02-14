@@ -1,11 +1,13 @@
 import SwiftUI
 import PDFKit
 import UniformTypeIdentifiers
+import UIKit
 import PDFMarkCore
 
 struct IOSContentView: View {
     @StateObject private var model = IOSAppModel()
-    @State private var showImporter = false
+    @State private var showFileImporter = false
+    @State private var activeImporter: ActiveImporter = .pdf
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var detailMode: DetailMode = .comparison
 
@@ -18,7 +20,6 @@ struct IOSContentView: View {
     @State private var showSingleSaveExporter = false
     @State private var singleSaveDocument = PDFExportDocument(data: Data())
     @State private var singleSaveFilename = "cleaned.pdf"
-    @State private var showBatchFolderPicker = false
     @State private var pendingCriticalAction: CriticalExportAction?
 
     @AppStorage("appLanguage") private var appLanguageRaw: String = IOSAppLanguage.system.rawValue
@@ -38,6 +39,11 @@ struct IOSContentView: View {
         var id: String { rawValue }
     }
 
+    enum ActiveImporter {
+        case pdf
+        case folder
+    }
+
     enum CriticalExportAction: String, Identifiable {
         case replaceSingle
         case replaceBatch
@@ -45,6 +51,11 @@ struct IOSContentView: View {
         case deleteBatch
 
         var id: String { rawValue }
+    }
+
+    enum ActiveAlert {
+        case processError(String)
+        case noMarks(String)
     }
 
     private var appLanguage: IOSAppLanguage {
@@ -85,6 +96,38 @@ struct IOSContentView: View {
         return localizer.t(.choosePDF)
     }
 
+    private var pdfPickerAllowsMultipleSelection: Bool {
+        enableAdvancedOptions || model.isBatchMode
+    }
+
+    private var importerContentTypes: [UTType] {
+        switch activeImporter {
+        case .pdf:
+            return [.pdf]
+        case .folder:
+            return [.folder]
+        }
+    }
+
+    private var importerAllowsMultipleSelection: Bool {
+        switch activeImporter {
+        case .pdf:
+            return pdfPickerAllowsMultipleSelection
+        case .folder:
+            return false
+        }
+    }
+
+    private var activeAlert: ActiveAlert? {
+        if let message = model.errorMessage {
+            return .processError(message)
+        }
+        if let fileName = model.noMarksFileName {
+            return .noMarks(fileName)
+        }
+        return nil
+    }
+
     var body: some View {
         ZStack {
             IOSGlassBackground(theme: backgroundTheme)
@@ -100,16 +143,28 @@ struct IOSContentView: View {
             .toolbar(.hidden, for: .navigationBar)
         }
         .fileImporter(
-            isPresented: $showImporter,
-            allowedContentTypes: [.pdf],
-            allowsMultipleSelection: enableAdvancedOptions
+            isPresented: $showFileImporter,
+            allowedContentTypes: importerContentTypes,
+            allowsMultipleSelection: importerAllowsMultipleSelection
         ) { result in
-            switch result {
-            case .success(let urls):
-                importPickedFiles(urls)
-            case .failure(let error):
-                model.errorMessage = error.localizedDescription
-                model.status = localizer.t(.pickFailed)
+            switch activeImporter {
+            case .pdf:
+                switch result {
+                case .success(let urls):
+                    importPickedFiles(urls)
+                case .failure(let error):
+                    model.errorMessage = error.localizedDescription
+                    model.status = "选择文件失败：\(error.localizedDescription)"
+                }
+            case .folder:
+                switch result {
+                case .success(let urls):
+                    guard let folder = urls.first else { return }
+                    model.saveBatchOutputs(to: folder)
+                case .failure(let error):
+                    model.errorMessage = error.localizedDescription
+                    model.status = "选择目录失败：\(error.localizedDescription)"
+                }
             }
         }
         .dropDestination(for: URL.self) { items, _ in
@@ -128,20 +183,6 @@ struct IOSContentView: View {
             case .failure(let error):
                 model.errorMessage = error.localizedDescription
                 model.status = "另存失败：\(error.localizedDescription)"
-            }
-        }
-        .fileImporter(
-            isPresented: $showBatchFolderPicker,
-            allowedContentTypes: [.folder],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                guard let folder = urls.first else { return }
-                model.saveBatchOutputs(to: folder)
-            case .failure(let error):
-                model.errorMessage = error.localizedDescription
-                model.status = "选择目录失败：\(error.localizedDescription)"
             }
         }
         .confirmationDialog(
@@ -164,17 +205,30 @@ struct IOSContentView: View {
         } message: { action in
             Text(confirmationMessage(for: action))
         }
-        .alert(localizer.t(.processFailed), isPresented: Binding(
-            get: { model.errorMessage != nil },
+        .alert(alertTitle(for: activeAlert), isPresented: Binding(
+            get: { activeAlert != nil },
             set: { isPresented in
                 if !isPresented {
                     model.errorMessage = nil
+                    model.noMarksFileName = nil
                 }
             }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(model.errorMessage ?? "")
+        ), presenting: activeAlert) { alert in
+            Button("OK", role: .cancel) {
+                switch alert {
+                case .processError:
+                    model.errorMessage = nil
+                case .noMarks:
+                    model.noMarksFileName = nil
+                }
+            }
+        } message: { alert in
+            switch alert {
+            case .processError(let message):
+                Text(message)
+            case .noMarks(let fileName):
+                Text(localizer.format(.noMarksFoundInFile, fileName))
+            }
         }
         .onAppear {
             applySettingsToModeIfNeeded()
@@ -233,7 +287,7 @@ struct IOSContentView: View {
 
             if isPad {
                 Button(fileButtonTitle) {
-                    showImporter = true
+                    presentPDFPicker()
                 }
                 .buttonStyle(.borderedProminent)
                 .frame(maxWidth: .infinity)
@@ -254,7 +308,7 @@ struct IOSContentView: View {
             } else {
                 HStack(spacing: 8) {
                     Button(fileButtonTitle) {
-                        showImporter = true
+                        presentPDFPicker()
                     }
                     .buttonStyle(.borderedProminent)
                     .frame(maxWidth: .infinity)
@@ -447,7 +501,7 @@ struct IOSContentView: View {
                 if model.isBatchMode {
                     HStack(spacing: 8) {
                         Button("批量另存") {
-                            showBatchFolderPicker = true
+                            presentFolderPicker()
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(!model.canSaveAsBatch)
@@ -765,34 +819,54 @@ struct IOSContentView: View {
     @ViewBuilder
     private func annotationTypeButton(_ kind: AnnotationKind) -> some View {
         let selected = model.selectedTypes.contains(kind)
+        let iconTint = selected ? backgroundTheme.accentColor : Color.black.opacity(0.72)
+        let iconPlateFill = selected ? backgroundTheme.accentColor.opacity(0.20) : Color.black.opacity(0.06)
+        let iconPlateStroke = selected ? backgroundTheme.accentColor.opacity(0.42) : Color.black.opacity(0.18)
+        let buttonFill = selected ? backgroundTheme.accentColor.opacity(0.28) : Color.white.opacity(0.58)
+        let buttonStroke = selected ? backgroundTheme.accentColor.opacity(0.90) : Color.black.opacity(0.14)
+        let buttonShadow = selected ? backgroundTheme.accentColor.opacity(0.18) : Color.black.opacity(0.08)
         Button {
             model.toggleType(kind, enabled: !selected)
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: kind.symbolName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(iconTint)
+                    .frame(width: 18, height: 18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(iconPlateFill)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(iconPlateStroke, lineWidth: 0.8)
+                    )
+                    .shadow(color: .black.opacity(selected ? 0.10 : 0.14), radius: 1.6, y: 1.0)
+
+                Text(kind.title)
+                    .font(.footnote)
+                    .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.92))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+
                 if selected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption)
                         .foregroundStyle(backgroundTheme.accentColor)
                 }
-                Text(kind.title)
-                    .font(.footnote)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(selected ? backgroundTheme.accentColor.opacity(0.26) : Color.white.opacity(0.20))
+                    .fill(buttonFill)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(
-                        selected ? backgroundTheme.accentColor.opacity(0.88) : Color.white.opacity(0.35),
-                        lineWidth: 1
-                    )
+                    .stroke(buttonStroke, lineWidth: 1)
             )
+            .shadow(color: buttonShadow, radius: selected ? 2.0 : 1.4, y: 0.8)
         }
         .buttonStyle(.plain)
     }
@@ -816,6 +890,26 @@ struct IOSContentView: View {
            model.batchInputURLs.isEmpty {
             model.processingMode = .batch
         }
+    }
+
+    private func presentPDFPicker() {
+        presentImporter(.pdf)
+    }
+
+    private func presentFolderPicker() {
+        presentImporter(.folder)
+    }
+
+    private func presentImporter(_ importer: ActiveImporter) {
+        activeImporter = importer
+        if showFileImporter {
+            showFileImporter = false
+            DispatchQueue.main.async {
+                showFileImporter = true
+            }
+            return
+        }
+        showFileImporter = true
     }
 
     private func importPickedFiles(_ urls: [URL]) {
@@ -883,6 +977,16 @@ struct IOSContentView: View {
         }
     }
 
+    private func alertTitle(for alert: ActiveAlert?) -> String {
+        guard let alert else { return "" }
+        switch alert {
+        case .processError:
+            return localizer.t(.processFailed)
+        case .noMarks:
+            return localizer.t(.noMarksFound)
+        }
+    }
+
     @ViewBuilder
     private func batchRow(url: URL, index: Int) -> some View {
         HStack(spacing: 8) {
@@ -924,6 +1028,7 @@ struct IOSContentView: View {
                 .font(.headline)
             if let document {
                 IOSPDFKitView(document: document)
+                    .id(ObjectIdentifier(document))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             } else {
@@ -1020,18 +1125,39 @@ private struct IOSPDFKitView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PDFView {
         let view = PDFView()
-        view.autoScales = true
+        view.autoScales = false
         view.displayMode = .singlePageContinuous
         view.displayDirection = .vertical
         view.displaysPageBreaks = true
-        view.backgroundColor = .secondarySystemBackground
+        view.backgroundColor = .systemBackground
+        view.document = nil
         view.document = document
+        DispatchQueue.main.async {
+            applyDefaultScale(to: view)
+        }
         return view
     }
 
     func updateUIView(_ uiView: PDFView, context: Context) {
         if uiView.document !== document {
+            uiView.document = nil
             uiView.document = document
+            uiView.goToFirstPage(nil)
         }
+        DispatchQueue.main.async {
+            applyDefaultScale(to: uiView)
+        }
+    }
+
+    private func applyDefaultScale(to view: PDFView) {
+        let fitScale = view.scaleFactorForSizeToFit
+        guard fitScale > 0 else {
+            view.autoScales = true
+            return
+        }
+        view.autoScales = false
+        view.minScaleFactor = fitScale * 0.8
+        view.maxScaleFactor = max(fitScale * 5, 4)
+        view.scaleFactor = fitScale
     }
 }
