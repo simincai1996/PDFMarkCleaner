@@ -1,5 +1,6 @@
 import XCTest
 import PDFKit
+import AppKit
 import PDFMarkCore
 @testable import PDFMarkCleaner
 
@@ -114,6 +115,47 @@ final class AppModelTests: XCTestCase {
         )
     }
 
+    func testMarkReportExportIncludesSummaryAndDetails() throws {
+        let root = try makeTempDirectory(name: "report-summary")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sourceURL = try makeAnnotatedPDF(named: "summary", in: root)
+        let options = PDFMarkReportExporter.Options(
+            selectedTypes: Set([.highlight]),
+            scopeDescription: "All Pages",
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        let report = try PDFMarkReportExporter.buildReport(inputURL: sourceURL, options: options)
+
+        XCTAssertTrue(report.contains("Selected Marks Total: 1"))
+        XCTAssertTrue(report.contains("Marked Pages (Selected Types) (1): 1"))
+        XCTAssertTrue(report.contains("Type Summary (Selected Types):"))
+        XCTAssertTrue(report.contains("- Highlight: 1"))
+        XCTAssertTrue(report.contains("Page 1"))
+        XCTAssertTrue(report.contains("contents=keep this"))
+    }
+
+    func testMarkReportExportRespectsSelectedPagesScope() throws {
+        let root = try makeTempDirectory(name: "report-scope")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sourceURL = try makeAnnotatedPDF(named: "scope", in: root)
+        let options = PDFMarkReportExporter.Options(
+            selectedTypes: Set([.text]),
+            pagesToInclude: Set([2]),
+            scopeDescription: "Selected Pages",
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        let report = try PDFMarkReportExporter.buildReport(inputURL: sourceURL, options: options)
+
+        XCTAssertTrue(report.contains("Pages Included (1): 2"))
+        XCTAssertTrue(report.contains("Marked Pages (Selected Types) (1): 2"))
+        XCTAssertTrue(report.contains("Page 2"))
+        XCTAssertFalse(report.contains("Page 1\n- All marks"))
+    }
+
     private func makeTempDirectory(name: String) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("pdfmarkcleaner-tests", isDirectory: true)
@@ -129,6 +171,54 @@ final class AppModelTests: XCTestCase {
             throw NSError(domain: "AppModelTests", code: 1)
         }
         return url
+    }
+
+    private func makeAnnotatedPDF(named name: String, in directory: URL) throws -> URL {
+        let document = PDFDocument()
+        let page1 = try makeBlankPDFPage()
+        let page2 = try makeBlankPDFPage()
+
+        let highlight = PDFAnnotation(
+            bounds: CGRect(x: 20, y: 30, width: 120, height: 24),
+            forType: .highlight,
+            withProperties: nil
+        )
+        highlight.userName = "tester"
+        highlight.contents = "keep this"
+        highlight.color = .yellow
+        page1.addAnnotation(highlight)
+
+        let textNote = PDFAnnotation(
+            bounds: CGRect(x: 40, y: 60, width: 32, height: 32),
+            forType: .text,
+            withProperties: nil
+        )
+        textNote.userName = "tester"
+        textNote.contents = "todo"
+        page2.addAnnotation(textNote)
+
+        document.insert(page1, at: 0)
+        document.insert(page2, at: 1)
+
+        let url = directory.appendingPathComponent(name).appendingPathExtension("pdf")
+        guard document.write(to: url) else {
+            throw NSError(domain: "AppModelTests", code: 2)
+        }
+        return url
+    }
+
+    private func makeBlankPDFPage() throws -> PDFPage {
+        let size = NSSize(width: 300, height: 420)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor.white.setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
+        image.unlockFocus()
+
+        guard let page = PDFPage(image: image) else {
+            throw NSError(domain: "AppModelTests", code: 3)
+        }
+        return page
     }
 
     private func makeModel() -> AppModel {

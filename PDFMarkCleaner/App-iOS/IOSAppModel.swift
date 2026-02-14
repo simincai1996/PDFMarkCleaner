@@ -324,8 +324,42 @@ final class IOSAppModel: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func prepareMarkReportExportPayload() -> (data: Data, filename: String)? {
+        guard let inputURL else {
+            status = "请先选择 PDF 文件。"
+            return nil
+        }
+        guard !isRunning else {
+            status = "处理中，请稍后再试。"
+            return nil
+        }
+
+        let pagesToInclude: Set<Int>? =
+            removalScope == .selected && !selectedPages.isEmpty ? selectedPages : nil
+        let scopeDescription = removalScope == .selected ? "指定页面" : "全部页面"
+        let options = PDFMarkReportExporter.Options(
+            selectedTypes: selectedTypes,
+            pagesToInclude: pagesToInclude,
+            scopeDescription: scopeDescription
+        )
+
+        do {
+            let report = try PDFMarkReportExporter.buildReport(inputURL: inputURL, options: options)
+            let filename = "\(inputURL.deletingPathExtension().lastPathComponent)_marked_report.txt"
+            return (Data(report.utf8), filename)
+        } catch {
+            status = "生成标记导出失败：\(error.localizedDescription)"
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
     func markSingleSaveAsCompleted(destination: URL) {
         clearAfterAction(message: "已另存：\(destination.lastPathComponent)")
+    }
+
+    func markMarkReportExportCompleted(destination: URL) {
+        status = "标记报告已导出：\(destination.lastPathComponent)"
     }
 
     func saveBatchOutputs(to directoryURL: URL) {

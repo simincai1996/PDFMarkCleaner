@@ -94,6 +94,8 @@ enum IOSLKey {
     case clearAllTypes
     case selectedTypesSummary
     case export
+    case exportMark
+    case exportMarkHint
     case exportHintSingle
     case exportHintBatch
     case language
@@ -257,6 +259,8 @@ struct IOSLocalizer {
         case .clearAllTypes: return "None"
         case .selectedTypesSummary: return "Selected %d types"
         case .export: return "Export"
+        case .exportMark: return "Export Mark Report"
+        case .exportMarkHint: return "Exports type summaries and per-page mark details."
         case .exportHintSingle: return "You can share the cleaned file after processing."
         case .exportHintBatch: return "Batch outputs can be shared one by one after processing."
         case .language: return "Language"
@@ -320,6 +324,8 @@ struct IOSLocalizer {
         case .clearAllTypes: return "清空"
         case .selectedTypesSummary: return "已选 %d 类"
         case .export: return "导出"
+        case .exportMark: return "导出标记报告"
+        case .exportMarkHint: return "导出文件将包含类型统计和逐页标记详情。"
         case .exportHintSingle: return "处理完成后可分享导出文件。"
         case .exportHintBatch: return "批处理完成后可逐个分享输出文件。"
         case .language: return "语言"
@@ -383,6 +389,8 @@ struct IOSLocalizer {
         case .clearAllTypes: return "清空"
         case .selectedTypesSummary: return "已選 %d 類"
         case .export: return "匯出"
+        case .exportMark: return "匯出標記報告"
+        case .exportMarkHint: return "匯出檔案將包含類型統計與逐頁標記詳情。"
         case .exportHintSingle: return "處理完成後可分享匯出檔案。"
         case .exportHintBatch: return "批次完成後可逐一分享輸出檔。"
         case .language: return "語言"

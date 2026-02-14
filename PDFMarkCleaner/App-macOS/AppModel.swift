@@ -361,24 +361,19 @@ final class AppModel: ObservableObject {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType.plainText]
         panel.directoryURL = inputURL.deletingLastPathComponent()
-        panel.nameFieldStringValue = "marked_pages.txt"
+        panel.nameFieldStringValue = "\(inputURL.deletingPathExtension().lastPathComponent)_marked_report.txt"
 
         if panel.runModal() == .OK, let url = panel.url {
-            let formatter = ISO8601DateFormatter()
-            let timestamp = formatter.string(from: Date())
-            let marks = markedPages.map(String.init).joined(separator: ", ")
-            let types = selectedTypes.sorted { $0.title < $1.title }.map { $0.title }.joined(separator: ", ")
-            let content = """
-            PDF Mark Cleaner - Marked Pages Export
-            File: \(inputURL.path)
-            Exported: \(timestamp)
-            Types: \(types.isEmpty ? "None" : types)
-            Total pages: \(pageCount)
-            Marked pages (\(markedPages.count)):
-            \(marks)
-            """
-
             do {
+                let pagesToInclude: Set<Int>? =
+                    removalScope == .selected && !selectedPages.isEmpty ? selectedPages : nil
+                let scopeDescription = removalScope == .selected ? "Selected Pages" : "All Pages"
+                let options = PDFMarkReportExporter.Options(
+                    selectedTypes: selectedTypes,
+                    pagesToInclude: pagesToInclude,
+                    scopeDescription: scopeDescription
+                )
+                let content = try PDFMarkReportExporter.buildReport(inputURL: inputURL, options: options)
                 try content.write(to: url, atomically: true, encoding: .utf8)
                 status = "Exported: \(url.lastPathComponent)"
             } catch {

@@ -20,6 +20,9 @@ struct IOSContentView: View {
     @State private var showSingleSaveExporter = false
     @State private var singleSaveDocument = PDFExportDocument(data: Data())
     @State private var singleSaveFilename = "cleaned.pdf"
+    @State private var showMarkReportExporter = false
+    @State private var markReportDocument = TextExportDocument(data: Data())
+    @State private var markReportFilename = "marked_report.txt"
     @State private var pendingCriticalAction: CriticalExportAction?
     @State private var phoneTab: PhoneTab = .home
 
@@ -189,6 +192,20 @@ struct IOSContentView: View {
             case .failure(let error):
                 model.errorMessage = error.localizedDescription
                 model.status = "另存失败：\(error.localizedDescription)"
+            }
+        }
+        .fileExporter(
+            isPresented: $showMarkReportExporter,
+            document: markReportDocument,
+            contentType: .plainText,
+            defaultFilename: markReportFilename
+        ) { result in
+            switch result {
+            case .success(let savedURL):
+                model.markMarkReportExportCompleted(destination: savedURL)
+            case .failure(let error):
+                model.errorMessage = error.localizedDescription
+                model.status = "标记报告导出失败：\(error.localizedDescription)"
             }
         }
         .confirmationDialog(
@@ -810,6 +827,19 @@ struct IOSContentView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+
+                Divider()
+                    .padding(.vertical, 2)
+
+                Button(localizer.t(.exportMark)) {
+                    prepareMarkReportExport()
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.inputURL == nil || model.isRunning)
+
+                Text(localizer.t(.exportMarkHint))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 8)
@@ -1158,6 +1188,13 @@ struct IOSContentView: View {
         showSingleSaveExporter = true
     }
 
+    private func prepareMarkReportExport() {
+        guard let payload = model.prepareMarkReportExportPayload() else { return }
+        markReportDocument = TextExportDocument(data: payload.data)
+        markReportFilename = payload.filename
+        showMarkReportExporter = true
+    }
+
     private func performCriticalAction(_ action: CriticalExportAction) {
         pendingCriticalAction = nil
         switch action {
@@ -1313,6 +1350,27 @@ struct IOSContentView: View {
 
 private struct PDFExportDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.pdf] }
+
+    var data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let content = configuration.file.regularFileContents else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        data = content
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
+
+private struct TextExportDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.plainText] }
 
     var data: Data
 
