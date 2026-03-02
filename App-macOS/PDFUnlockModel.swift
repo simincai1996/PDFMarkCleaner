@@ -44,6 +44,8 @@ final class PDFUnlockModel: ObservableObject {
     private var latestSingleProcessedInputPath: String?
     private var latestSingleProcessedOutputURL: URL?
     private var batchProcessedOutputByInputPath: [String: URL] = [:]
+    private var batchSavedOutputByInputPath: [String: URL] = [:]
+    private var batchTempDirectory: URL?
     private let minPreviewScale: CGFloat = 0.5
     private let maxPreviewScale: CGFloat = 3.0
     private nonisolated static let minimumProgressDisplayDuration: TimeInterval = 0.45
@@ -74,6 +76,35 @@ final class PDFUnlockModel: ObservableObject {
             return true
         }
         return canProcess
+    }
+
+    var processedBatchOutputCount: Int {
+        processedBatchPairs().count
+    }
+
+    var currentBatchOutputURL: URL? {
+        guard isBatchMode, let inputURL else { return nil }
+        let key = inputURL.standardizedFileURL.path
+        guard let output = batchSavedOutputByInputPath[key] else { return nil }
+        guard FileManager.default.fileExists(atPath: output.path) else { return nil }
+        return output
+    }
+
+    var currentSingleOutputURL: URL? {
+        currentProcessedSingleOutput()
+    }
+
+    var canSaveBatchOutputs: Bool {
+        guard !isRunning else { return false }
+        return isBatchMode && !processedBatchPairs().isEmpty
+    }
+
+    var canDeleteOriginal: Bool {
+        guard !isRunning else { return false }
+        if isBatchMode {
+            return !batchInputURLs.isEmpty
+        }
+        return inputURL != nil
     }
 
     var suggestedOutputURL: URL? {
@@ -244,7 +275,8 @@ final class PDFUnlockModel: ObservableObject {
 
         batchInputURLs.remove(at: index)
         lockStateByPath.removeValue(forKey: removedPath)
-        batchProcessedOutputByInputPath.removeValue(forKey: removedPath)
+        removeBatchProcessedOutput(forInputPath: removedPath)
+        batchSavedOutputByInputPath.removeValue(forKey: removedPath)
 
         guard !batchInputURLs.isEmpty else {
             inputURL = nil
@@ -290,7 +322,7 @@ final class PDFUnlockModel: ObservableObject {
 
     func saveAs() {
         if isBatchMode {
-            status = "Save is disabled in batch mode."
+            saveBatchOutputs()
             return
         }
         guard canProcess else {
@@ -358,9 +390,10 @@ final class PDFUnlockModel: ObservableObject {
             if !success { return }
             do {
                 try self.replaceInputFile(input: inputURL, withOutput: tempURL)
+                try? FileManager.default.removeItem(at: tempURL)
                 self.clearAfterAction(message: "Replaced: \(inputURL.lastPathComponent)")
             } catch {
-                self.status = "Replace failed: \(error.localizedDescription)"
+                self.status = "Replace failed: \(inputURL.lastPathComponent) (\(error.localizedDescription))"
                 try? FileManager.default.removeItem(at: tempURL)
             }
         }
@@ -368,7 +401,7 @@ final class PDFUnlockModel: ObservableObject {
 
     func deleteOriginal() {
         if isBatchMode {
-            deleteCurrentBatchItem()
+            deleteBatchOriginals()
             return
         }
         guard let inputURL else {
@@ -385,9 +418,12 @@ final class PDFUnlockModel: ObservableObject {
         }
 
         do {
-            var trashed: NSURL?
-            try FileManager.default.trashItem(at: inputURL, resultingItemURL: &trashed)
-            clearAfterAction(message: "Moved to Trash: \(inputURL.lastPathComponent)")
+            let movedToTrash = try trashOrDeleteFile(at: inputURL)
+            if movedToTrash {
+                clearAfterAction(message: "Moved to Trash: \(inputURL.lastPathComponent)")
+            } else {
+                clearAfterAction(message: "Deleted permanently: \(inputURL.lastPathComponent)")
+            }
         } catch {
             status = "Delete failed: \(error.localizedDescription)"
         }
@@ -514,6 +550,64 @@ final class PDFUnlockModel: ObservableObject {
         }
     }
 
+    private func saveBatchOutputs() {
+        guard !batchInputURLs.isEmpty else {
+            status = "Please select PDF files first."
+            return
+        }
+        if isRunning { return }
+
+        let pairs = processedBatchPairs()
+        guard !pairs.isEmpty else {
+            status = "No prepared outputs. Click Start Batch first."
+            return
+        }
+
+        var reservedOutputPaths = Set<String>()
+        var savedCount = 0
+        var renamedCount = 0
+        var failedCount = 0
+        var firstFailure: (input: URL, output: URL, error: Error)?
+
+        for pair in pairs {
+            let preferredOutput = suggestedOutputURL(for: pair.input)
+            let resolved = resolveBatchOutputURL(
+                for: preferredOutput,
+                reservedPaths: &reservedOutputPaths
+            )
+            if resolved.wasRenamed {
+                renamedCount += 1
+            }
+
+            do {
+                try FileManager.default.copyItem(at: pair.output, to: resolved.url)
+                savedCount += 1
+                let key = pair.input.standardizedFileURL.path
+                batchSavedOutputByInputPath[key] = resolved.url.standardizedFileURL
+            } catch {
+                failedCount += 1
+                if firstFailure == nil {
+                    firstFailure = (pair.input, resolved.url, error)
+                }
+            }
+        }
+
+        if failedCount == 0 {
+            if renamedCount > 0 {
+                status = "Saved unlocked files: \(savedCount) (renamed: \(renamedCount))"
+            } else {
+                status = "Saved unlocked files: \(savedCount)"
+            }
+            return
+        }
+
+        if let firstFailure {
+            status = "Save failed for \(failedCount) file(s). First failure: \(firstFailure.input.lastPathComponent) -> \(firstFailure.output.lastPathComponent) (\(firstFailure.error.localizedDescription)). Tip: click Select Output and choose a writable folder."
+        } else {
+            status = "Save failed for \(failedCount) file(s)."
+        }
+    }
+
     private func replaceBatchOriginals() {
         guard !batchInputURLs.isEmpty else {
             status = "Please select PDF files first."
@@ -536,6 +630,7 @@ final class PDFUnlockModel: ObservableObject {
 
         var replacedCount = 0
         var failedCount = 0
+        var firstFailure: (input: URL, error: Error)?
 
         for pair in pairs {
             do {
@@ -543,6 +638,9 @@ final class PDFUnlockModel: ObservableObject {
                 replacedCount += 1
             } catch {
                 failedCount += 1
+                if firstFailure == nil {
+                    firstFailure = (pair.input, error)
+                }
             }
         }
 
@@ -553,7 +651,11 @@ final class PDFUnlockModel: ObservableObject {
         if failedCount == 0 {
             status = "Replaced originals: \(replacedCount) file(s)"
         } else {
-            status = "Replaced \(replacedCount) file(s), failed \(failedCount) file(s)"
+            if let firstFailure {
+                status = "Replaced \(replacedCount) file(s), failed \(failedCount) file(s). First failure: \(firstFailure.input.lastPathComponent) (\(firstFailure.error.localizedDescription))"
+            } else {
+                status = "Replaced \(replacedCount) file(s), failed \(failedCount) file(s)"
+            }
         }
     }
 
@@ -564,21 +666,73 @@ final class PDFUnlockModel: ObservableObject {
             return
         }
 
-        let tempName = ".pdfunlocker_replace_tmp_\(UUID().uuidString).pdf"
-        let tempURL = input.deletingLastPathComponent().appendingPathComponent(tempName)
-
-        if fileManager.fileExists(atPath: tempURL.path) {
-            try fileManager.removeItem(at: tempURL)
-        }
-
+        let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let tempURL = tempDirectory.appendingPathComponent(".pdfunlocker_replace_tmp_\(UUID().uuidString).pdf")
+        try? fileManager.removeItem(at: tempURL)
         try fileManager.copyItem(at: output, to: tempURL)
+        defer { try? fileManager.removeItem(at: tempURL) }
+
         do {
             _ = try fileManager.replaceItemAt(input, withItemAt: tempURL, backupItemName: nil, options: [])
             lockStateByPath[input.standardizedFileURL.path] = false
         } catch {
-            try? fileManager.removeItem(at: tempURL)
-            throw error
+            // Fallback for sandbox cases where directory-level sibling creation is denied.
+            let payload = try Data(contentsOf: output)
+            do {
+                try payload.write(to: input, options: [])
+                lockStateByPath[input.standardizedFileURL.path] = false
+            } catch {
+                throw error
+            }
         }
+    }
+
+    private func trashOrDeleteFile(at url: URL) throws -> Bool {
+        do {
+            var trashed: NSURL?
+            try FileManager.default.trashItem(at: url, resultingItemURL: &trashed)
+            return true
+        } catch {
+            try FileManager.default.removeItem(at: url)
+            return false
+        }
+    }
+
+    private func removeBatchProcessedOutput(forInputPath inputPath: String) {
+        guard let output = batchProcessedOutputByInputPath.removeValue(forKey: inputPath) else { return }
+        if let batchTempDirectory, output.standardizedFileURL.path.hasPrefix(batchTempDirectory.standardizedFileURL.path) {
+            try? FileManager.default.removeItem(at: output)
+            return
+        }
+        if output.path.contains("/tmp/") || output.path.contains("/private/tmp/") {
+            try? FileManager.default.removeItem(at: output)
+        }
+    }
+
+    private func clearBatchProcessingArtifacts() {
+        for path in Array(batchProcessedOutputByInputPath.keys) {
+            removeBatchProcessedOutput(forInputPath: path)
+        }
+        batchProcessedOutputByInputPath.removeAll()
+        if let directory = batchTempDirectory {
+            try? FileManager.default.removeItem(at: directory)
+            batchTempDirectory = nil
+        }
+    }
+
+    private func pruneBatchProcessingArtifacts(keeping allowed: Set<String>) {
+        let stale = batchProcessedOutputByInputPath.keys.filter { !allowed.contains($0) }
+        for key in stale {
+            removeBatchProcessedOutput(forInputPath: key)
+        }
+        batchProcessedOutputByInputPath = batchProcessedOutputByInputPath.filter { allowed.contains($0.key) }
+    }
+
+    private func makeBatchTempDirectory() throws -> URL {
+        let base = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let dir = base.appendingPathComponent("pdfunlocker_batch_\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
     }
 
     private func startBatch() {
@@ -594,9 +748,20 @@ final class PDFUnlockModel: ObservableObject {
 
         let urls = batchInputURLs
         let password = normalizedPassword
-        var reservedOutputPaths = Set<String>()
-        var renamedOutputCount = 0
         let processStart = Date()
+
+        do {
+            clearBatchProcessingArtifacts()
+            batchTempDirectory = try makeBatchTempDirectory()
+        } catch {
+            status = "Batch failed: cannot prepare temporary files (\(error.localizedDescription))"
+            return
+        }
+
+        guard let tempDirectory = batchTempDirectory else {
+            status = "Batch failed: temporary workspace unavailable."
+            return
+        }
 
         progress = 0
         isRunning = true
@@ -605,21 +770,17 @@ final class PDFUnlockModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             var lastError: Error?
+            var failedInputURL: URL?
+            var failedOutputURL: URL?
 
             for (index, url) in urls.enumerated() {
                 do {
-                    let preferredOutput = self.suggestedOutputURL(for: url)
-                    let resolved = self.resolveBatchOutputURL(
-                        for: preferredOutput,
-                        reservedPaths: &reservedOutputPaths
-                    )
-                    if resolved.wasRenamed {
-                        renamedOutputCount += 1
-                    }
+                    let tempOutput = tempDirectory.appendingPathComponent(".pdfunlocker_batch_tmp_\(UUID().uuidString).pdf")
+                    failedOutputURL = tempOutput
 
                     try PDFUnlocker.unlock(
                         input: url,
-                        output: resolved.url,
+                        output: tempOutput,
                         password: password,
                         progress: { p in
                             let overall = (Double(index) + p) / Double(urls.count)
@@ -635,8 +796,10 @@ final class PDFUnlockModel: ObservableObject {
 
                     if url == self.inputURL {
                         DispatchQueue.main.async {
-                            self.batchProcessedOutputByInputPath[url.standardizedFileURL.path] = resolved.url.standardizedFileURL
-                            self.unlockedPreview = PDFDocument(url: resolved.url)
+                            let key = url.standardizedFileURL.path
+                            self.batchProcessedOutputByInputPath[key] = tempOutput.standardizedFileURL
+                            self.batchSavedOutputByInputPath.removeValue(forKey: key)
+                            self.unlockedPreview = PDFDocument(url: tempOutput)
                             if let count = self.unlockedPreview?.pageCount, count > 0 {
                                 self.pageCount = count
                                 self.currentPageNumber = self.clampPageNumber(self.currentPageNumber)
@@ -644,11 +807,14 @@ final class PDFUnlockModel: ObservableObject {
                         }
                     } else {
                         DispatchQueue.main.async {
-                            self.batchProcessedOutputByInputPath[url.standardizedFileURL.path] = resolved.url.standardizedFileURL
+                            let key = url.standardizedFileURL.path
+                            self.batchProcessedOutputByInputPath[key] = tempOutput.standardizedFileURL
+                            self.batchSavedOutputByInputPath.removeValue(forKey: key)
                         }
                     }
                 } catch {
                     lastError = error
+                    failedInputURL = url
                     break
                 }
             }
@@ -661,18 +827,20 @@ final class PDFUnlockModel: ObservableObject {
             DispatchQueue.main.async {
                 self.isRunning = false
                 if let error = lastError {
-                    self.status = "Batch failed: \(error.localizedDescription)"
+                    self.status = Self.formatFailureStatus(
+                        error: error,
+                        isBatch: true,
+                        input: failedInputURL,
+                        output: failedOutputURL,
+                        usesAutoOutputFolder: false
+                    )
                     if let unlockError = error as? PDFUnlockError, unlockError == .invalidPassword {
                         self.passwordErrorMessage = "Invalid password."
                     }
                 } else {
                     self.progress = 1
                     self.passwordErrorMessage = nil
-                    if renamedOutputCount > 0 {
-                        self.status = "Batch done: \(urls.count) files (renamed: \(renamedOutputCount))"
-                    } else {
-                        self.status = "Batch done: \(urls.count) files"
-                    }
+                    self.status = "Batch prepared: \(urls.count) file(s). Click Save or Replace."
                 }
             }
         }
@@ -739,7 +907,13 @@ final class PDFUnlockModel: ObservableObject {
 
                 DispatchQueue.main.async {
                     self?.isRunning = false
-                    self?.status = "Failed: \(error.localizedDescription)"
+                    self?.status = Self.formatFailureStatus(
+                        error: error,
+                        isBatch: false,
+                        input: input,
+                        output: output,
+                        usesAutoOutputFolder: false
+                    )
                     if let unlockError = error as? PDFUnlockError, unlockError == .invalidPassword {
                         self?.passwordErrorMessage = "Invalid password."
                     }
@@ -814,8 +988,9 @@ final class PDFUnlockModel: ObservableObject {
         batchIndex = 0
 
         let allowed = Set(urls.map { $0.standardizedFileURL.path })
+        pruneBatchProcessingArtifacts(keeping: allowed)
         lockStateByPath = lockStateByPath.filter { allowed.contains($0.key) }
-        batchProcessedOutputByInputPath = batchProcessedOutputByInputPath.filter { allowed.contains($0.key) }
+        batchSavedOutputByInputPath = batchSavedOutputByInputPath.filter { allowed.contains($0.key) }
 
         if urls.isEmpty {
             resetState(statusMessage: "Select a PDF file.")
@@ -853,40 +1028,65 @@ final class PDFUnlockModel: ObservableObject {
         }
     }
 
-    private func deleteCurrentBatchItem() {
-        guard let inputURL else {
-            status = "Please select a PDF first."
+    private func deleteBatchOriginals() {
+        guard !batchInputURLs.isEmpty else {
+            status = "Please select PDF files first."
             return
         }
         if isRunning { return }
 
         guard confirm(
-            title: "Delete original PDF?",
-            message: "The file will be moved to Trash."
+            title: "Delete listed original PDFs?",
+            message: "This will delete \(batchInputURLs.count) original file(s) in the current list. Files are moved to Trash when possible. This action cannot be undone."
         ) else {
             return
         }
 
-        do {
-            var trashed: NSURL?
-            try FileManager.default.trashItem(at: inputURL, resultingItemURL: &trashed)
-            lockStateByPath.removeValue(forKey: inputURL.standardizedFileURL.path)
+        var remaining: [URL] = []
+        var movedToTrashCount = 0
+        var deletedCount = 0
+        var failedCount = 0
+        var firstFailure: (URL, Error)?
 
-            if let index = batchInputURLs.firstIndex(of: inputURL) {
-                batchInputURLs.remove(at: index)
-                if batchInputURLs.isEmpty {
-                    batchIndex = 0
-                    resetState(statusMessage: "Moved to Trash: \(inputURL.lastPathComponent)")
-                    return
+        for url in batchInputURLs {
+            let path = url.standardizedFileURL.path
+            do {
+                let movedToTrash = try trashOrDeleteFile(at: url)
+                if movedToTrash {
+                    movedToTrashCount += 1
+                } else {
+                    deletedCount += 1
                 }
-                let newIndex = min(index, batchInputURLs.count - 1)
-                switchToBatchIndex(newIndex)
-                status = "Moved to Trash: \(inputURL.lastPathComponent)"
-            } else {
-                resetState(statusMessage: "Moved to Trash: \(inputURL.lastPathComponent)")
+                lockStateByPath.removeValue(forKey: path)
+                removeBatchProcessedOutput(forInputPath: path)
+                batchSavedOutputByInputPath.removeValue(forKey: path)
+            } catch {
+                failedCount += 1
+                remaining.append(url)
+                if firstFailure == nil {
+                    firstFailure = (url, error)
+                }
             }
-        } catch {
-            status = "Delete failed: \(error.localizedDescription)"
+        }
+
+        if remaining.isEmpty {
+            batchInputURLs = []
+            batchIndex = 0
+            let message = failedCount == 0
+                ? "Deleted listed originals: trash \(movedToTrashCount), permanent \(deletedCount)"
+                : "Deleted listed originals: trash \(movedToTrashCount), permanent \(deletedCount), failed \(failedCount)"
+            resetState(statusMessage: message)
+            return
+        }
+
+        batchInputURLs = remaining
+        batchIndex = min(batchIndex, remaining.count - 1)
+        switchToBatchIndex(batchIndex)
+
+        if let firstFailure {
+            status = "Deleted: trash \(movedToTrashCount), permanent \(deletedCount), failed \(failedCount). First failure: \(firstFailure.0.lastPathComponent) (\(firstFailure.1.localizedDescription))"
+        } else {
+            status = "Deleted: trash \(movedToTrashCount), permanent \(deletedCount), failed \(failedCount)"
         }
     }
 
@@ -918,6 +1118,8 @@ final class PDFUnlockModel: ObservableObject {
                 resetState(statusMessage: "Select a PDF file.")
             }
         } else {
+            clearBatchProcessingArtifacts()
+            batchSavedOutputByInputPath.removeAll()
             batchOutputDirectory = nil
             if let current = inputURL {
                 batchInputURLs = []
@@ -947,6 +1149,28 @@ final class PDFUnlockModel: ObservableObject {
     private nonisolated static func remainingProgressDelay(startedAt: Date) -> TimeInterval {
         let elapsed = Date().timeIntervalSince(startedAt)
         return max(0, minimumProgressDisplayDuration - elapsed)
+    }
+
+    private nonisolated static func formatFailureStatus(
+        error: Error,
+        isBatch: Bool,
+        input: URL?,
+        output: URL?,
+        usesAutoOutputFolder: Bool
+    ) -> String {
+        let prefix = isBatch ? "Batch failed" : "Failed"
+        let filePart = input.map { " file=\($0.lastPathComponent)" } ?? ""
+        let outputPart = output.map { " output=\($0.lastPathComponent)" } ?? ""
+        let base = "\(prefix): \(error.localizedDescription)\(filePart)\(outputPart)"
+
+        guard let unlockError = error as? PDFUnlockError, unlockError == .saveFailed else {
+            return base
+        }
+
+        if isBatch && usesAutoOutputFolder {
+            return "\(base). Tip: click Select Output and choose a writable folder (Desktop/Downloads), then retry."
+        }
+        return "\(base). Tip: choose a writable output path and retry."
     }
 
     private func clearAfterAction(message: String) {
@@ -982,7 +1206,8 @@ final class PDFUnlockModel: ObservableObject {
         progress = 0
         isRunning = false
         lockStateByPath.removeAll()
-        batchProcessedOutputByInputPath.removeAll()
+        clearBatchProcessingArtifacts()
+        batchSavedOutputByInputPath.removeAll()
         latestSingleProcessedInputPath = nil
         latestSingleProcessedOutputURL = nil
         status = statusMessage

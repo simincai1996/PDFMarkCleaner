@@ -265,7 +265,7 @@ private struct UnlockSidebar: View {
                                     Button(localizer.t(.save)) {
                                         model.saveAs()
                                     }
-                                    .disabled(!model.canProcess || model.isRunning || isBatch)
+                                    .disabled(isBatch ? !model.canSaveBatchOutputs : (!model.canProcess || model.isRunning))
                                     .frame(maxWidth: .infinity, alignment: .leading)
 
                                     Button(localizer.t(.replace)) {
@@ -277,13 +277,37 @@ private struct UnlockSidebar: View {
                                     Button(localizer.t(.deleteOriginal)) {
                                         model.deleteOriginal()
                                     }
-                                    .disabled(model.inputURL == nil || model.isRunning)
+                                    .disabled(!model.canDeleteOriginal)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 }
 
                                 if model.isRunning {
                                     ProgressView(value: model.progress)
                                         .frame(maxWidth: .infinity)
+                                }
+
+                                Text(model.status)
+                                    .font(.caption)
+                                    .foregroundStyle(statusColor)
+                                    .lineLimit(3)
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                if isBatch {
+                                    Text("Prepared outputs: \(model.processedBatchOutputCount)/\(model.batchInputURLs.count)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+
+                                    if let output = model.currentBatchOutputURL {
+                                        Text("Current saved output: \(output.lastPathComponent)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                } else if let output = model.currentSingleOutputURL {
+                                    Text("Last output: \(output.lastPathComponent)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
                                 }
                             }
                         }
@@ -395,6 +419,17 @@ private struct UnlockSidebar: View {
             get: { model.currentPageNumber },
             set: { model.setCurrentPageNumber($0) }
         )
+    }
+
+    private var statusColor: Color {
+        let lower = model.status.lowercased()
+        if lower.contains("failed") || lower.contains("invalid password") {
+            return .red
+        }
+        if lower.contains("done") || lower.contains("saved") || lower.contains("replaced") || lower.contains("moved to trash") {
+            return .green
+        }
+        return .secondary
     }
 }
 
