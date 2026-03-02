@@ -156,6 +156,59 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(report.contains("Page 1\n- All marks"))
     }
 
+    func testPDFUnlockerUnlocksPasswordProtectedPDF() throws {
+        let root = try makeTempDirectory(name: "unlock-success")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sourceURL = try makePasswordProtectedPDF(
+            named: "locked",
+            in: root,
+            userPassword: "1234"
+        )
+        let outputURL = root.appendingPathComponent("locked_unlocked.pdf")
+
+        let lockedDoc = PDFDocument(url: sourceURL)
+        XCTAssertTrue(lockedDoc?.isLocked == true)
+
+        try PDFUnlocker.unlock(
+            input: sourceURL,
+            output: outputURL,
+            password: "1234",
+            progress: { _ in }
+        )
+
+        let unlockedDoc = PDFDocument(url: outputURL)
+        XCTAssertNotNil(unlockedDoc)
+        XCTAssertFalse(unlockedDoc?.isLocked ?? true)
+    }
+
+    func testPDFUnlockerRequiresPasswordForLockedPDF() throws {
+        let root = try makeTempDirectory(name: "unlock-no-password")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sourceURL = try makePasswordProtectedPDF(
+            named: "locked",
+            in: root,
+            userPassword: "1234"
+        )
+        let outputURL = root.appendingPathComponent("locked_unlocked.pdf")
+
+        XCTAssertThrowsError(
+            try PDFUnlocker.unlock(
+                input: sourceURL,
+                output: outputURL,
+                password: nil,
+                progress: { _ in }
+            )
+        ) { error in
+            guard let unlockError = error as? PDFUnlockError,
+                  unlockError == .passwordRequired else {
+                XCTFail("Unexpected error: \(error)")
+                return
+            }
+        }
+    }
+
     private func makeTempDirectory(name: String) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("pdfmarkcleaner-tests", isDirectory: true)
@@ -203,6 +256,26 @@ final class AppModelTests: XCTestCase {
         let url = directory.appendingPathComponent(name).appendingPathExtension("pdf")
         guard document.write(to: url) else {
             throw NSError(domain: "AppModelTests", code: 2)
+        }
+        return url
+    }
+
+    private func makePasswordProtectedPDF(
+        named name: String,
+        in directory: URL,
+        userPassword: String
+    ) throws -> URL {
+        let document = PDFDocument()
+        let page = try makeBlankPDFPage()
+        document.insert(page, at: 0)
+
+        let url = directory.appendingPathComponent(name).appendingPathExtension("pdf")
+        let options: [PDFDocumentWriteOption: Any] = [
+            .ownerPasswordOption: "owner-password",
+            .userPasswordOption: userPassword
+        ]
+        guard document.write(to: url, withOptions: options) else {
+            throw NSError(domain: "AppModelTests", code: 4)
         }
         return url
     }

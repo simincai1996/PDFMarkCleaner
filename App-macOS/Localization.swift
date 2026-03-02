@@ -12,6 +12,8 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 }
 
 enum LKey {
+    case toolMarkClean
+    case toolUnlock
     case appTitle
     case files
     case input
@@ -61,6 +63,9 @@ enum LKey {
     case beforeCleanup
     case afterClean
     case expectedResult
+    case beforeUnlock
+    case afterUnlock
+    case expectedUnlocked
     case settingsTitle
     case language
     case systemLanguage
@@ -78,6 +83,11 @@ enum LKey {
     case currentFile
     case previewFile
     case startBatch
+    case unlockPassword
+    case passwordPlaceholder
+    case locked
+    case unlocked
+    case batchPasswordHint
     case sameAsInputFolder
     case dropPDFFiles
     case noNewPDFFilesAdded
@@ -139,6 +149,8 @@ struct Localizer {
 
     private func english(_ key: LKey) -> String {
         switch key {
+        case .toolMarkClean: return "PDF Mark Clean"
+        case .toolUnlock: return "PDF Unlock"
         case .appTitle: return "PDF Mark Cleaner"
         case .files: return "Files"
         case .input: return "Input"
@@ -188,6 +200,9 @@ struct Localizer {
         case .beforeCleanup: return "Before cleanup"
         case .afterClean: return "After Clean"
         case .expectedResult: return "Expected result"
+        case .beforeUnlock: return "Before unlock"
+        case .afterUnlock: return "After unlock"
+        case .expectedUnlocked: return "Expected unlocked result"
         case .settingsTitle: return "Settings"
         case .language: return "Language"
         case .systemLanguage: return "System"
@@ -205,6 +220,11 @@ struct Localizer {
         case .currentFile: return "Current File"
         case .previewFile: return "Preview File"
         case .startBatch: return "Start Batch"
+        case .unlockPassword: return "Password"
+        case .passwordPlaceholder: return "Password (for locked PDF)"
+        case .locked: return "Current file is locked"
+        case .unlocked: return "Current file is not locked"
+        case .batchPasswordHint: return "One password is used for all locked PDFs in batch mode."
         case .sameAsInputFolder: return "Same as input folder"
         case .dropPDFFiles: return "Please drop PDF files."
         case .noNewPDFFilesAdded: return "No new PDF files added."
@@ -223,6 +243,8 @@ struct Localizer {
 
     private func chinese(_ key: LKey) -> String {
         switch key {
+        case .toolMarkClean: return "PDF 标记清理"
+        case .toolUnlock: return "PDF 解锁"
         case .appTitle: return "PDF 标记清理器"
         case .files: return "文件"
         case .input: return "输入"
@@ -272,6 +294,9 @@ struct Localizer {
         case .beforeCleanup: return "清理前"
         case .afterClean: return "清理后"
         case .expectedResult: return "预期结果"
+        case .beforeUnlock: return "解锁前"
+        case .afterUnlock: return "解锁后"
+        case .expectedUnlocked: return "预期解锁结果"
         case .settingsTitle: return "设置"
         case .language: return "语言"
         case .systemLanguage: return "跟随系统"
@@ -289,6 +314,11 @@ struct Localizer {
         case .currentFile: return "当前文件"
         case .previewFile: return "预览文件"
         case .startBatch: return "开始批量"
+        case .unlockPassword: return "密码"
+        case .passwordPlaceholder: return "密码（用于加密 PDF）"
+        case .locked: return "当前文件已加密"
+        case .unlocked: return "当前文件未加密"
+        case .batchPasswordHint: return "批量模式下将对所有加密文件使用同一密码。"
         case .sameAsInputFolder: return "与输入文件夹相同"
         case .dropPDFFiles: return "请拖入 PDF 文件。"
         case .noNewPDFFilesAdded: return "没有新增 PDF 文件。"
@@ -307,6 +337,8 @@ struct Localizer {
 
     private func chineseTraditional(_ key: LKey) -> String {
         switch key {
+        case .toolMarkClean: return "PDF 標記清理"
+        case .toolUnlock: return "PDF 解鎖"
         case .appTitle: return "PDF 標記清理器"
         case .files: return "檔案"
         case .input: return "輸入"
@@ -356,6 +388,9 @@ struct Localizer {
         case .beforeCleanup: return "清理前"
         case .afterClean: return "清理後"
         case .expectedResult: return "預期結果"
+        case .beforeUnlock: return "解鎖前"
+        case .afterUnlock: return "解鎖後"
+        case .expectedUnlocked: return "預期解鎖結果"
         case .settingsTitle: return "設定"
         case .language: return "語言"
         case .systemLanguage: return "跟隨系統"
@@ -373,6 +408,11 @@ struct Localizer {
         case .currentFile: return "目前檔案"
         case .previewFile: return "預覽檔案"
         case .startBatch: return "開始批量"
+        case .unlockPassword: return "密碼"
+        case .passwordPlaceholder: return "密碼（用於加密 PDF）"
+        case .locked: return "目前檔案已加密"
+        case .unlocked: return "目前檔案未加密"
+        case .batchPasswordHint: return "批量模式會對所有加密檔案使用同一組密碼。"
         case .sameAsInputFolder: return "與輸入資料夾相同"
         case .dropPDFFiles: return "請拖入 PDF 檔案。"
         case .noNewPDFFilesAdded: return "沒有新增 PDF 檔案。"
@@ -391,6 +431,8 @@ struct Localizer {
 
     private func german(_ key: LKey) -> String {
         switch key {
+        case .toolMarkClean: return "PDF-Marken reinigen"
+        case .toolUnlock: return "PDF entsperren"
         case .appTitle: return "PDF-Markierungen bereinigen"
         case .files: return "Dateien"
         case .input: return "Eingabe"
@@ -440,6 +482,9 @@ struct Localizer {
         case .beforeCleanup: return "Vor der Bereinigung"
         case .afterClean: return "Nach der Bereinigung"
         case .expectedResult: return "Erwartetes Ergebnis"
+        case .beforeUnlock: return "Vor dem Entsperren"
+        case .afterUnlock: return "Nach dem Entsperren"
+        case .expectedUnlocked: return "Erwartetes entsperrtes Ergebnis"
         case .settingsTitle: return "Einstellungen"
         case .language: return "Sprache"
         case .systemLanguage: return "System"
@@ -457,6 +502,11 @@ struct Localizer {
         case .currentFile: return "Aktuelle Datei"
         case .previewFile: return "Vorschau-Datei"
         case .startBatch: return "Stapel starten"
+        case .unlockPassword: return "Passwort"
+        case .passwordPlaceholder: return "Passwort (für geschütztes PDF)"
+        case .locked: return "Aktuelle Datei ist geschützt"
+        case .unlocked: return "Aktuelle Datei ist nicht geschützt"
+        case .batchPasswordHint: return "Im Stapelmodus wird ein Passwort für alle geschützten PDFs verwendet."
         case .sameAsInputFolder: return "Wie Eingabeordner"
         case .dropPDFFiles: return "Bitte PDF-Dateien hier ablegen."
         case .noNewPDFFilesAdded: return "Keine neuen PDF-Dateien hinzugefügt."
@@ -475,6 +525,8 @@ struct Localizer {
 
     private func spanish(_ key: LKey) -> String {
         switch key {
+        case .toolMarkClean: return "Limpieza de marcas PDF"
+        case .toolUnlock: return "Desbloquear PDF"
         case .appTitle: return "Limpiador de marcas PDF"
         case .files: return "Archivos"
         case .input: return "Entrada"
@@ -524,6 +576,9 @@ struct Localizer {
         case .beforeCleanup: return "Antes de limpiar"
         case .afterClean: return "Después de limpiar"
         case .expectedResult: return "Resultado esperado"
+        case .beforeUnlock: return "Antes de desbloquear"
+        case .afterUnlock: return "Después de desbloquear"
+        case .expectedUnlocked: return "Resultado esperado desbloqueado"
         case .settingsTitle: return "Configuración"
         case .language: return "Idioma"
         case .systemLanguage: return "Sistema"
@@ -541,6 +596,11 @@ struct Localizer {
         case .currentFile: return "Archivo actual"
         case .previewFile: return "Archivo de vista previa"
         case .startBatch: return "Iniciar lote"
+        case .unlockPassword: return "Contraseña"
+        case .passwordPlaceholder: return "Contraseña (para PDF protegido)"
+        case .locked: return "El archivo actual está protegido"
+        case .unlocked: return "El archivo actual no está protegido"
+        case .batchPasswordHint: return "El modo lote usa una sola contraseña para todos los PDFs protegidos."
         case .sameAsInputFolder: return "Igual que la carpeta de entrada"
         case .dropPDFFiles: return "Suelta archivos PDF."
         case .noNewPDFFilesAdded: return "No se agregaron archivos PDF nuevos."

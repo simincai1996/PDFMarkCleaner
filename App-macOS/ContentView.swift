@@ -3,7 +3,7 @@ import PDFKit
 import AppKit
 import PDFMarkCore
 
-struct ContentView: View {
+struct MarkCleanContentView: View {
     @StateObject private var model: AppModel
     @AppStorage("appLanguage") private var appLanguageRaw: String = AppLanguage.system.rawValue
     @AppStorage("enableAdvancedOptions") private var enableAdvancedOptions = false
