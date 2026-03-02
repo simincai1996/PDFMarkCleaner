@@ -4,7 +4,7 @@ import SwiftUI
 struct PDFMarkCleaneriOSApp: App {
     var body: some Scene {
         WindowGroup {
-            IOSContentView()
+            IOSMainContentView()
         }
     }
 }

@@ -69,6 +69,8 @@ enum IOSBackgroundTheme: String, CaseIterable, Identifiable {
 
 enum IOSLKey {
     case appTitle
+    case toolMarkClean
+    case toolUnlock
     case choosePDF
     case choosePDFs
     case confirmAction
@@ -121,8 +123,18 @@ enum IOSLKey {
     case comparison
     case original
     case cleaned
+    case unlockBefore
+    case unlockAfter
+    case unlockExpected
+    case unlockPassword
+    case passwordPlaceholder
+    case locked
+    case unlocked
+    case batchPasswordHint
     case collapseSidebar
     case expandSidebar
+    case navigation
+    case reset
     case batchEmpty
     case previous
     case next
@@ -256,6 +268,8 @@ struct IOSLocalizer {
     private func english(_ key: IOSLKey) -> String {
         switch key {
         case .appTitle: return "PDF Mark Cleaner"
+        case .toolMarkClean: return "Mark Clean"
+        case .toolUnlock: return "PDF Unlock"
         case .choosePDF: return "Choose PDF"
         case .choosePDFs: return "Choose PDFs"
         case .confirmAction: return "Confirm"
@@ -308,8 +322,18 @@ struct IOSLocalizer {
         case .comparison: return "Compared"
         case .original: return "Original"
         case .cleaned: return "Clean"
+        case .unlockBefore: return "Before Unlock"
+        case .unlockAfter: return "After Unlock"
+        case .unlockExpected: return "Expected unlocked result"
+        case .unlockPassword: return "Password"
+        case .passwordPlaceholder: return "Password (for locked PDF)"
+        case .locked: return "Current file is locked"
+        case .unlocked: return "Current file is not locked"
+        case .batchPasswordHint: return "One password is used for all locked PDFs in batch mode."
         case .collapseSidebar: return "Collapse"
         case .expandSidebar: return "Expand"
+        case .navigation: return "Navigation"
+        case .reset: return "Reset"
         case .batchEmpty: return "Batch list is empty."
         case .previous: return "Previous"
         case .next: return "Next"
@@ -343,6 +367,8 @@ struct IOSLocalizer {
     private func chineseSimplified(_ key: IOSLKey) -> String {
         switch key {
         case .appTitle: return "PDF 标记清理器"
+        case .toolMarkClean: return "标记清理"
+        case .toolUnlock: return "PDF 解锁"
         case .choosePDF: return "选择 PDF"
         case .choosePDFs: return "选择 PDF（多选）"
         case .confirmAction: return "确认执行"
@@ -395,8 +421,18 @@ struct IOSLocalizer {
         case .comparison: return "对比"
         case .original: return "原文件"
         case .cleaned: return "清理后"
+        case .unlockBefore: return "解锁前"
+        case .unlockAfter: return "解锁后"
+        case .unlockExpected: return "预期解锁结果"
+        case .unlockPassword: return "密码"
+        case .passwordPlaceholder: return "密码（用于加密 PDF）"
+        case .locked: return "当前文件已加密"
+        case .unlocked: return "当前文件未加密"
+        case .batchPasswordHint: return "批量模式下将对所有加密文件使用同一密码。"
         case .collapseSidebar: return "收起"
         case .expandSidebar: return "展开"
+        case .navigation: return "导航"
+        case .reset: return "重置"
         case .batchEmpty: return "批处理列表为空。"
         case .previous: return "上一个"
         case .next: return "下一个"
@@ -430,6 +466,8 @@ struct IOSLocalizer {
     private func chineseTraditional(_ key: IOSLKey) -> String {
         switch key {
         case .appTitle: return "PDF 標記清理器"
+        case .toolMarkClean: return "標記清理"
+        case .toolUnlock: return "PDF 解鎖"
         case .choosePDF: return "選擇 PDF"
         case .choosePDFs: return "選擇 PDF（可多選）"
         case .confirmAction: return "確認執行"
@@ -482,8 +520,18 @@ struct IOSLocalizer {
         case .comparison: return "對比"
         case .original: return "原始"
         case .cleaned: return "清理後"
+        case .unlockBefore: return "解鎖前"
+        case .unlockAfter: return "解鎖後"
+        case .unlockExpected: return "預期解鎖結果"
+        case .unlockPassword: return "密碼"
+        case .passwordPlaceholder: return "密碼（用於加密 PDF）"
+        case .locked: return "目前檔案已加密"
+        case .unlocked: return "目前檔案未加密"
+        case .batchPasswordHint: return "批量模式會對所有加密檔案使用同一組密碼。"
         case .collapseSidebar: return "收起"
         case .expandSidebar: return "展開"
+        case .navigation: return "導覽"
+        case .reset: return "重設"
         case .batchEmpty: return "批次列表為空。"
         case .previous: return "上一個"
         case .next: return "下一個"
