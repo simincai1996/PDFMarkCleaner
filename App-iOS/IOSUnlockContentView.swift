@@ -21,6 +21,7 @@ struct IOSUnlockContentView: View {
     @AppStorage("appLanguage") private var appLanguageRaw: String = IOSAppLanguage.system.rawValue
     @AppStorage("backgroundTheme") private var backgroundThemeRaw: String = IOSBackgroundTheme.frost.rawValue
     @AppStorage("enableAdvancedOptions") private var enableAdvancedOptions = false
+    @AppStorage("iosToolPage") private var selectedToolRaw: String = IOSToolPage.unlock.rawValue
 
     enum ActiveImporter {
         case pdf
@@ -63,6 +64,13 @@ struct IOSUnlockContentView: View {
 
     private var isPad: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
+    }
+
+    private var selectedToolBinding: Binding<IOSToolPage> {
+        Binding(
+            get: { IOSToolPage(rawValue: selectedToolRaw) ?? .unlock },
+            set: { selectedToolRaw = $0.rawValue }
+        )
     }
 
     private var importerContentTypes: [UTType] {
@@ -350,6 +358,15 @@ struct IOSUnlockContentView: View {
 
     private var fixedTopPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if isPad {
+                Picker("", selection: selectedToolBinding) {
+                    Text(localizer.t(.toolMarkClean)).tag(IOSToolPage.markClean)
+                    Text(localizer.t(.toolUnlock)).tag(IOSToolPage.unlock)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+
             HStack(spacing: 10) {
                 Image(systemName: "lock.open.display")
                     .font(.title3)

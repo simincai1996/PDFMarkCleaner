@@ -30,6 +30,7 @@ struct IOSContentView: View {
     @AppStorage("backgroundTheme") private var backgroundThemeRaw: String = IOSBackgroundTheme.frost.rawValue
     @AppStorage("enableAdvancedOptions") private var enableAdvancedOptions = false
     @AppStorage("preferBatchMode") private var preferBatchMode = false
+    @AppStorage("iosToolPage") private var selectedToolRaw: String = IOSToolPage.markClean.rawValue
 
     private let typeColumns = [
         GridItem(.adaptive(minimum: 120), spacing: 8)
@@ -74,6 +75,13 @@ struct IOSContentView: View {
 
     private var backgroundTheme: IOSBackgroundTheme {
         IOSBackgroundTheme(rawValue: backgroundThemeRaw) ?? .frost
+    }
+
+    private var selectedToolBinding: Binding<IOSToolPage> {
+        Binding(
+            get: { IOSToolPage(rawValue: selectedToolRaw) ?? .markClean },
+            set: { selectedToolRaw = $0.rawValue }
+        )
     }
 
     private var localizer: IOSLocalizer {
@@ -529,6 +537,15 @@ struct IOSContentView: View {
 
     private var fixedTopPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if isPad {
+                Picker("", selection: selectedToolBinding) {
+                    Text(localizer.t(.toolMarkClean)).tag(IOSToolPage.markClean)
+                    Text(localizer.t(.toolUnlock)).tag(IOSToolPage.unlock)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+
             HStack(spacing: 10) {
                 Image(systemName: "doc.text.magnifyingglass")
                     .font(.title3)

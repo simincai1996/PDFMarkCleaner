@@ -22,8 +22,12 @@ struct IOSMainContentView: View {
         )
     }
 
+    private var isPad: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
+    }
+
     var body: some View {
-        Group {
+        let content = Group {
             switch selectedPageBinding.wrappedValue {
             case .markClean:
                 IOSContentView()
@@ -31,25 +35,29 @@ struct IOSMainContentView: View {
                 IOSUnlockContentView()
             }
         }
-        .safeAreaInset(edge: .top, spacing: 8) {
-            HStack {
-                Spacer()
-                Picker("", selection: selectedPageBinding) {
-                    Text(localizer.t(.toolMarkClean)).tag(IOSToolPage.markClean)
-                    Text(localizer.t(.toolUnlock)).tag(IOSToolPage.unlock)
+        if isPad {
+            content
+        } else {
+            content
+                .safeAreaInset(edge: .top, spacing: 8) {
+                    HStack {
+                        Spacer()
+                        Picker("", selection: selectedPageBinding) {
+                            Text(localizer.t(.toolMarkClean)).tag(IOSToolPage.markClean)
+                            Text(localizer.t(.toolUnlock)).tag(IOSToolPage.unlock)
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.white.opacity(0.28), lineWidth: 1)
+                        )
+                        .frame(maxWidth: 420)
+                        Spacer()
+                    }
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.white.opacity(0.28), lineWidth: 1)
-                )
-                .frame(maxWidth: 420)
-                Spacer()
-            }
-            .padding(.horizontal, 12)
         }
     }
 }
